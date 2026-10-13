@@ -113,7 +113,7 @@ python scripts/smoke_build.py
 
 macOS 输出 `dist/NeoResourceUnpackTool.app` 及对应架构 ZIP；Windows 输出单文件 `dist/NeoResourceUnpackTool.exe`。必须在对应系统构建。打包测试会实际启动 Qt、定位内置引擎，并解压测试包；截图和结果保存在 `artifacts/`。
 
-GitHub Actions 的 `Desktop build` 工作流在 `dev` 推送和 PR 时分别测试、构建 Windows x64、macOS Apple Silicon、macOS Intel，并上传可下载产物；也支持手动触发。具体执行结果以 Actions 为准。
+GitHub Actions 的 `Desktop build` 工作流在 `dev` / `main` 推送和 PR 时分别测试、构建 Windows x64、macOS Apple Silicon、macOS Intel，并上传可下载产物；也支持手动触发。`main` 每次直接提交或合并触发的推送，在全部测试和成品验证通过后自动创建 [Release](https://github.com/Mammmth/NeoResourceUnpackTool/releases)，附上本次推送的提交备注、三平台成品及 SHA-256 校验文件。`dev`、PR 和手动构建不发布 Release。自动标签采用提交 UTC 时间和短提交号，具体结果以 Actions 为准。
 
 测试包含真实 RAR3/RAR5、加密与分卷样本、真实 PKZIP 分卷、动态生成的加密 ZIP/7z、隐写与伪加密组合、递归停止、密码续接、文件重名、原文件保护及桌面实际任务。测试用 RAR 来源与许可证在 `tests/fixtures/rar/`。
 

@@ -93,7 +93,7 @@ codesign --verify --deep --strict dist/NeoResourceUnpackTool.app
 
 ## GitHub Actions
 
-[Desktop build](../.github/workflows/build.yml) 在 `dev` 推送、PR 和手动触发时执行：安装依赖 → 下载官方引擎 → 源码测试 → 打包 → 成品验证 → 上传产物与验证资料。
+[Desktop build](../.github/workflows/build.yml) 在 `dev` / `main` 推送、PR 和手动触发时执行：安装依赖 → 下载官方引擎 → 源码测试 → 打包 → 成品验证 → 上传产物与验证资料。
 
 | Runner | 架构 | 产物名称 |
 | --- | --- | --- |
@@ -101,7 +101,21 @@ codesign --verify --deep --strict dist/NeoResourceUnpackTool.app
 | `macos-15` | Apple Silicon | `NeoResourceUnpackTool-macOS-Apple-Silicon` |
 | `macos-15-intel` | Intel | `NeoResourceUnpackTool-macOS-Intel` |
 
-另有 `Verification-*` 产物保存报告和截图。作业超时 30 分钟、矩阵不提前中止其他平台；同一 ref 的更新会取消同组旧流程。当前没有文档路径过滤，所以仅文档推送也会触发完整构建。
+另有 `Verification-*` 产物保存报告和截图。构建作业超时 30 分钟、矩阵不提前中止其他平台；`dev` / PR 同一 ref 的更新会取消同组旧流程，`main` 的每次运行均保留。当前没有文档路径过滤，所以仅文档推送也会触发完整构建。
+
+### main 自动 Release
+
+只有 `push` 到 `main` 才执行 `release` 作业，直接提交、合并、squash / rebase merge 均由最终推送触发。它依赖三平台 `build` 和独立的 `release-tests` 全部成功；`dev`、PR、手动运行均不会发布。配置需合入 `main` 后生效，不会自动合并分支。
+
+[scripts/release.cjs](../scripts/release.cjs) 从完整 Git 历史读取 `before..head` 新增提交的标题及正文，生成中文说明；首次建立分支（before 全零）只取 head。长备注会截断并提供完整变更链接。提交备注作为数据处理，不插入 shell 命令或 Actions 表达式。
+
+- 标签格式：`vYYYYMMDDTHHMMSSZ-<12位提交号>`，采用提交的 UTC 时间，重跑保持一致；应用内版本号不随自动标签改动。
+- 附件：`NeoResourceUnpackTool.exe`、`NeoResourceUnpackTool-macos-arm64.zip`、`NeoResourceUnpackTool-macos-x86_64.zip`、`SHA256SUMS.txt`。发布前核对三个包均存在且非空，校验文件针对内部成品，不是 Actions 外层 ZIP。
+- 先创建草稿、上传全部附件、再公开。上传失败不公开；重跑同一次 Actions 可替换草稿附件并继续。已公开版本直接返回，不改写附件；同名标签或 Release 指向其他提交时停止。
+- 工作流默认只读权限，仅发布作业获得 `contents: write`，使用内置 `GITHUB_TOKEN`，无需另设个人令牌。仓库/组织策略或标签规则若拒绝写入，会在发布作业报错；缺失历史也会停止备注生成。
+- `release-tests` 在 Ubuntu / Node.js 24 上运行，可本地执行 `node --test tests/release.test.cjs`。测试覆盖真实临时 Git 合并备注、附件缺失/空文件、标签稳定性、校验值、长备注、上传中断恢复、已发布重跑和权限/标签冲突；通过模拟 API 验证发布流程，不创建真实 Release。
+
+失败时在 Actions 中重跑失败作业。真实 GitHub 发布及最终下载仍需首次 `main` 推送验证；签名、公证和最低系统版本验收仍沿用现有限制。
 
 交付前核对构建对应提交、每个平台结果及成品验证，下载时校验 GitHub 提供的 artifact digest。Actions 下载的外层 ZIP 内，Windows 是 EXE，Mac 是包含 APP 的第二层 ZIP。不能把外层 ZIP 的散列误写成内部成品散列。
 
