@@ -69,6 +69,7 @@ class UnpackTask:
                  progress: Callable[[TaskProgress], None] = lambda _: None):
         settings.validate()
         self.group = make_group(paths)
+        self._output_name = self.group.name
         self.settings = settings
         self.log = log
         self.progress = progress
@@ -236,7 +237,8 @@ class UnpackTask:
             raise PasswordRequired(message)
         raise UnpackError("解压未完成。")
 
-    def _walk(self, group: VolumeGroup, depth: int, finals: list[tuple[Path, str]]) -> None:
+    def _walk(self, group: VolumeGroup, depth: int, finals: list[tuple[Path, str]]) -> str:
+        """Collect results and return the innermost name shared by all branches."""
         self.check_cancel()
         if depth > 64 or self.archive_count >= 10000:
             raise UnpackError("递归层数或包数量异常，已停止并保留缓存。")
@@ -260,11 +262,11 @@ class UnpackTask:
         items = children(root)
         if self.settings.depth == "one":
             finals.extend((p, group.name) for p in items)
-            return
+            return group.name
         # Directories alongside content are part of that content; don't flatten them.
         if any(p.is_dir() for p in items):
             finals.extend((p, group.name) for p in items)
-            return
+            return group.name
         texts = [p for p in items if p.suffix.casefold() == ".txt"]
         nontexts = [p for p in items if p.suffix.casefold() != ".txt"]
         for path in texts[:]:
@@ -276,7 +278,7 @@ class UnpackTask:
             nontexts, texts = items, []
         if not nontexts:
             finals.extend((p, group.name) for p in texts)
-            return
+            return group.name
         for path in nontexts:
             if is_volume_name(path):
                 continue
@@ -285,19 +287,19 @@ class UnpackTask:
             info = self.info(VolumeGroup((path,), name=path.stem))
             if info is None or content_container(path, info):
                 finals.extend((p, group.name) for p in items)
-                return
+                return group.name
         try:
             groups = discover_groups(nontexts)
             archive_infos = [self.info(candidate) for candidate in groups]
         except InvalidInput:
             finals.extend((p, group.name) for p in items)
-            return
+            return group.name
         if any(info is None for info in archive_infos):
             finals.extend((p, group.name) for p in items)
-            return
+            return group.name
         finals.extend((p, group.name) for p in texts)
-        for candidate in groups:
-            self._walk(candidate, depth + 1, finals)
+        names = [self._walk(candidate, depth + 1, finals) for candidate in groups]
+        return names[0] if len(names) == 1 else group.name
 
     def _copy_final(self, source: Path, target: Path) -> None:
         self.check_cancel()
@@ -314,7 +316,8 @@ class UnpackTask:
         base = Path(self.settings.fixed_directory).expanduser().absolute() if mode.startswith("fixed") else self.group.paths[0].parent
         base.mkdir(parents=True, exist_ok=True)
         new_folder = mode in {"folder", "fixed_folder"}
-        output = available_name(base, self.group.name) if new_folder else base
+        name = self._output_name if mode == "fixed_folder" else self.group.name
+        output = available_name(base, name) if new_folder else base
         if new_folder:
             output.mkdir()
         staged = Path(tempfile.mkdtemp(prefix=".neo-publish-", dir=base))
@@ -444,7 +447,7 @@ class UnpackTask:
                 self._filename_encoding = self.settings.filename_encoding
                 self.emit("文件名编码已更改，重新从原始输入处理；旧过程缓存已保留。")
             finals: list[tuple[Path, str]] = []
-            self._walk(self.group, 1, finals)
+            self._output_name = self._walk(self.group, 1, finals)
             self.emit("解压完成，正在整理最终内容…")
             self.current_archive, self.current_depth = "", 0
             self.report_progress("整理结果")
