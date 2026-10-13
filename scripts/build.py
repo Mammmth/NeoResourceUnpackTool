@@ -12,6 +12,9 @@ NAME = "NeoResourceUnpackTool"
 
 
 def main():
+    for stream in (sys.stdout, sys.stderr):
+        if hasattr(stream, "reconfigure"):
+            stream.reconfigure(encoding="utf-8", errors="replace")
     if sys.platform not in {"win32", "darwin"}:
         raise SystemExit("请分别在 Windows 和 macOS 上构建。")
     host = "windows" if sys.platform == "win32" else "macos"

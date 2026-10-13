@@ -4,6 +4,10 @@ import subprocess
 import sys
 from pathlib import Path
 
+for stream in (sys.stdout, sys.stderr):
+    if hasattr(stream, "reconfigure"):
+        stream.reconfigure(encoding="utf-8", errors="replace")
+
 root = Path(__file__).resolve().parents[1]
 name = "NeoResourceUnpackTool"
 executable = root / "dist" / (f"{name}.exe" if sys.platform == "win32" else f"{name}.app/Contents/MacOS/{name}")

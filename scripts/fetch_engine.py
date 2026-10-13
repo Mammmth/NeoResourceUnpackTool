@@ -22,6 +22,9 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 def main():
+    for stream in (sys.stdout, sys.stderr):
+        if hasattr(stream, "reconfigure"):
+            stream.reconfigure(encoding="utf-8", errors="replace")
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--platform", choices=PACKAGES, default="windows" if sys.platform == "win32" else "macos")
     parser.add_argument("--no-proxy", action="store_true", help="仅本次下载不使用代理")

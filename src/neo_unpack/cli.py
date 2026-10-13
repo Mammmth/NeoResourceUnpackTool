@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import sys
 from pathlib import Path
 
 from .config import load_settings
@@ -9,6 +10,9 @@ from .workflow import UnpackTask
 
 
 def main() -> int:
+    for stream in (sys.stdout, sys.stderr):
+        if hasattr(stream, "reconfigure"):
+            stream.reconfigure(encoding="utf-8", errors="replace")
     parser = argparse.ArgumentParser(description="自动还原与递归解压一个压缩包或一组分卷")
     parser.add_argument("files", nargs="+", type=Path)
     parser.add_argument("--output", type=Path, help="固定输出目录；默认在源目录新建文件夹")
