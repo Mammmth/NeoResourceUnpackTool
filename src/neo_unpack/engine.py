@@ -137,7 +137,49 @@ class SevenZip:
             "-o" + str(destination), "--", str(archive),
         ], password)
         if code:
-            self._failure(text, password=password, encrypted=encrypted)
+            try:
+                self._failure(text, password=password, encrypted=encrypted)
+            except PasswordRequired:
+                if password and not password.isascii() and archive.suffix.lower() == ".zip":
+                    self._extract_utf8_zip(archive, destination, password)
+                else:
+                    raise
         for path in destination.rglob("*"):
             if path.is_symlink() or (path.is_file() and path.stat().st_nlink > 1):
                 raise UnsafeArchive("解压结果包含链接，任务已停止，未写入最终目录。")
+
+    def _extract_utf8_zip(self, archive: Path, destination: Path, password: str) -> None:
+        # Windows 7-Zip converts ZIP passwords with CP_ACP, even for ZIPs made
+        # with UTF-8 passwords. Retry the same user password as UTF-8 bytes.
+        import pyzipper
+
+        shutil.rmtree(destination)
+        destination.mkdir()
+        try:
+            with pyzipper.AESZipFile(archive) as source:
+                source.setpassword(password.encode("utf-8"))
+                members = source.infolist()
+                for member in members:
+                    check_member_path(member.filename)
+                    if (member.external_attr >> 16) & 0o170000 == 0o120000:
+                        raise UnsafeArchive("压缩包包含符号链接，已停止解压。")
+                for member in members:
+                    if self.cancel.is_set():
+                        raise Cancelled("已取消，任务缓存已保留。")
+                    target = destination.joinpath(*PurePosixPath(member.filename.replace("\\", "/")).parts)
+                    if member.is_dir():
+                        target.mkdir(parents=True, exist_ok=True)
+                        continue
+                    target.parent.mkdir(parents=True, exist_ok=True)
+                    original = target
+                    index = 1
+                    while target.exists():
+                        target = original.with_name(f"{original.stem}_{index}{original.suffix}")
+                        index += 1
+                    with source.open(member) as reader, target.open("xb") as writer:
+                        while block := reader.read(1024 * 1024):
+                            if self.cancel.is_set():
+                                raise Cancelled("已取消，任务缓存已保留。")
+                            writer.write(block)
+        except (RuntimeError, pyzipper.BadZipFile, NotImplementedError) as error:
+            raise PasswordRequired("需要正确密码，或加密数据已经损坏。") from error

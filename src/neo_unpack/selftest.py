@@ -29,6 +29,14 @@ def main(report_path: str):
             archive.writestr("包装/最终内容.txt", "Neo bundled app smoke test")
         result = UnpackTask([source], Settings()).run()
         assert (result.output / "最终内容.txt").read_text() == "Neo bundled app smoke test"
+        import pyzipper
+        encrypted = root / "utf8.zip"
+        with pyzipper.AESZipFile(encrypted, "w", encryption=pyzipper.WZ_AES) as archive:
+            archive.setpassword("中文密码".encode("utf-8"))
+            archive.writestr("content.txt", "UTF-8 password verified")
+        encrypted_result = UnpackTask([encrypted], Settings(passwords=["wrong", "中文密码"])).run()
+        assert (encrypted_result.output / "content.txt").read_text() == "UTF-8 password verified"
         window.grab().save(str(report.with_suffix(".png")))
-        report.write_text(json.dumps({"ok": True, "engine": str(find_engine()), "layers": result.layers}, ensure_ascii=False), "utf-8")
+        report.write_text(json.dumps({"ok": True, "engine": str(find_engine()), "layers": result.layers,
+                                      "utf8_zip_password": True}, ensure_ascii=False), "utf-8")
         window.close()

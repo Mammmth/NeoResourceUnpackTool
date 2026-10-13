@@ -20,6 +20,10 @@ licenses; the MIT license does not replace them.
   Source: https://github.com/pyinstaller/pyinstaller/tree/v6.22.3
 - RAR regression fixtures originate from **rarfile**, Marko Kreen, and carry
   their ISC notice in `tests/fixtures/rar/LICENSE`. They are not bundled in the app.
+- **pyzipper 0.4.0** (MIT) and **PyCryptodome / pycryptodomex 3.24.1**
+  (BSD and public-domain portions) provide UTF-8 ZIP password compatibility.
+  Their distribution license files are included in `third_party/package-licenses`.
+  Sources: https://github.com/danifus/pyzipper and https://github.com/Legrandin/pycryptodome
 
 Runtime binary paths are `vendor/7zip/windows/7z.exe` + `7z.dll`, or
 `vendor/7zip/macos/7zz`, within the application's bundle. Platform-specific

@@ -50,6 +50,20 @@ def test_false_signature(tmp_path):
     assert detect(file) is None
 
 
+@pytest.mark.parametrize("password,success", [("中文 p@ss", True), ("错误密码", False)])
+def test_utf8_zip_fallback(make_archive, tmp_path, password, success):
+    archive = make_archive("zip", "中文 p@ss")
+    destination = tmp_path / "utf8-result"
+    destination.mkdir()
+    engine = SevenZip()
+    if success:
+        engine._extract_utf8_zip(archive, destination, password)
+        assert (destination / "结果.bin").read_bytes() == b"payload" * 100
+    else:
+        with pytest.raises(PasswordRequired):
+            engine._extract_utf8_zip(archive, destination, password)
+
+
 @pytest.mark.parametrize("local,central", [(True, True), (True, False), (False, True)])
 def test_fake_zip(make_zip, local, central):
     file = make_zip(files={"结果.txt": "hello", "second.bin": b"more data"})

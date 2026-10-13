@@ -24,11 +24,15 @@ def main():
         raise SystemExit("请先运行 python scripts/fetch_engine.py")
     licenses = ROOT / "build" / "licenses"
     licenses.mkdir(parents=True, exist_ok=True)
-    for package in ["PySide6-Essentials", "shiboken6", "pyinstaller"]:
+    for package in ["PySide6-Essentials", "shiboken6", "pyinstaller", "pyzipper", "pycryptodomex"]:
         distribution = importlib.metadata.distribution(package)
         for file in distribution.files or []:
             if "licenses" in file.parts:
                 target = licenses / package / Path(*file.parts[file.parts.index("licenses") + 1:])
+                target.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copyfile(distribution.locate_file(file), target)
+            elif file.name.upper().startswith(("LICENSE", "COPYING")):
+                target = licenses / package / file.name
                 target.parent.mkdir(parents=True, exist_ok=True)
                 shutil.copyfile(distribution.locate_file(file), target)
     args = [sys.executable, "-m", "PyInstaller", "--noconfirm", "--clean", "--windowed", "--name", NAME,
