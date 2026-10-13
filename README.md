@@ -1,0 +1,2 @@
+# NeoResourceUnpackTool
+自动识别压缩包格式，自动识别密码并递归解压的小工具
