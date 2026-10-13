@@ -1,0 +1,25 @@
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "neo-resource-unpack-tool"
+version = "0.1.0"
+description = "自动识别、还原与递归解压 ZIP、RAR、7z 的跨平台桌面工具"
+requires-python = ">=3.11"
+dependencies = ["PySide6-Essentials>=6.8,<7"]
+license = "MIT"
+
+[project.optional-dependencies]
+dev = ["pytest>=8", "pyinstaller>=6.11", "certifi", "pyzipper>=0.4"]
+
+[project.scripts]
+neo-unpack = "neo_unpack.gui:main"
+neo-unpack-cli = "neo_unpack.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
