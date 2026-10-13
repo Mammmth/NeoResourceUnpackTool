@@ -23,13 +23,17 @@ function prepareRelease({ sha, before, repository, serverUrl, runUrl, assetDir, 
   const commits = initial ? [sha] : git('rev-list', '--reverse', `${before}..${sha}`).split('\n').filter(Boolean);
   const baseUrl = `${serverUrl}/${repository}`;
   const comparison = initial ? `${baseUrl}/commit/${sha}` : `${baseUrl}/compare/${before}...${sha}`;
+  // The pushed head (normally the merge commit) is the curated release description.
+  const headMessage = git('show', '-s', '--format=%B', sha);
+  const description = headMessage.length <= 30000 ? headMessage :
+    `${headMessage.slice(0, 30000)}\n\n备注过长，完整内容请查看[发布提交](${baseUrl}/commit/${sha})。`;
   let notes = '';
   for (const commit of commits) {
     const message = git('show', '-s', '--format=%B', commit);
     // Use a longer fence than anything in the commit, keeping text as data.
     const fence = '`'.repeat(Math.max(3, ...Array.from(message.matchAll(/`+/g), m => m[0].length + 1)));
     const entry = `### ${commit.slice(0, 12)}\n\n${fence}text\n${message}\n${fence}\n\n`;
-    if (notes.length + entry.length > 55000) {
+    if (notes.length + entry.length > 25000) {
       notes += '提交备注过长，剩余内容请查看下方完整变更链接。\n\n';
       break;
     }
@@ -49,7 +53,8 @@ function prepareRelease({ sha, before, repository, serverUrl, runUrl, assetDir, 
   assets.push({ name: 'SHA256SUMS.txt', file: checksumFile });
   const body = `main 自动构建：Windows x64、macOS Apple Silicon、macOS Intel。\n\n` +
     `源码提交：\`${sha}\`；[构建与验证](${runUrl})。\n\n` +
-    `## 本次推送的提交备注\n\n${notes || '本次推送没有新增提交。\n\n'}` +
+    `${description}\n\n` +
+    `<details>\n<summary>本次推送的完整提交备注</summary>\n\n${notes || '本次推送没有新增提交。\n\n'}</details>\n\n` +
     `[完整变更](${comparison})\n\n` +
     `下载对应平台的附件；SHA256SUMS.txt 用于核对文件完整性。当前构建未配置正式签名或 Apple 公证。\n`;
   return { sha, tag, name: `Neo Resource Unpack Tool ${tag}`, body, assets };

@@ -33,12 +33,14 @@ test('merge notes include all new commit titles/bodies; tags and checksums are d
   commit('新功能\n\n中文正文，含 `代码` 和 ``` 围栏；$(touch injected)');
   commit('修复说明');
   git('switch', 'main');
-  git('merge', '--no-ff', 'dev', '-m', '合并功能');
+  git('merge', '--no-ff', 'dev', '-m', '合并功能\n\n## 版本亮点\n\n- 新增中文功能\n- 改进桌面体验');
   const sha = git('rev-parse', 'HEAD');
   const plan = prepareRelease({ ...options, sha });
   assert.equal(plan.tag, `v20261013T120000Z-${sha.slice(0, 12)}`);
   for (const text of ['新功能', '中文正文', '修复说明', '合并功能', '$(touch injected)']) assert.ok(plan.body.includes(text));
   assert.ok(!plan.body.includes('旧提交'));
+  assert.ok(plan.body.includes('合并功能\n\n## 版本亮点\n\n- 新增中文功能'));
+  assert.ok(plan.body.indexOf('## 版本亮点') < plan.body.indexOf('<details>'));
   assert.equal(fs.existsSync(path.join(cwd, 'injected')), false);
   assert.deepEqual(prepareRelease({ ...options, sha }), plan);
   assert.equal(plan.assets.length, 4);

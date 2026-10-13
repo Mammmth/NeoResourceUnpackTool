@@ -107,7 +107,7 @@ codesign --verify --deep --strict dist/NeoResourceUnpackTool.app
 
 只有 `push` 到 `main` 才执行 `release` 作业，直接提交、合并、squash / rebase merge 均由最终推送触发。它依赖三平台 `build` 和独立的 `release-tests` 全部成功；`dev`、PR、手动运行均不会发布。配置需合入 `main` 后生效，不会自动合并分支。
 
-[scripts/release.cjs](../scripts/release.cjs) 从完整 Git 历史读取 `before..head` 新增提交的标题及正文，生成中文说明；首次建立分支（before 全零）只取 head。长备注会截断并提供完整变更链接。提交备注作为数据处理，不插入 shell 命令或 Actions 表达式。
+[scripts/release.cjs](../scripts/release.cjs) 将 head（通常为合并提交）的标题和正文作为 Release 主描述，按 Markdown 展示；从完整 Git 历史读取 `before..head` 新增提交的标题及正文，放入折叠区；首次建立分支（before 全零）只取 head。长备注会截断并提供完整变更链接。提交备注作为数据处理，不插入 shell 命令或 Actions 表达式。
 
 - 标签格式：`vYYYYMMDDTHHMMSSZ-<12位提交号>`，采用提交的 UTC 时间，重跑保持一致；应用内版本号不随自动标签改动。
 - 附件：`NeoResourceUnpackTool.exe`、`NeoResourceUnpackTool-macos-arm64.zip`、`NeoResourceUnpackTool-macos-x86_64.zip`、`SHA256SUMS.txt`。发布前核对三个包均存在且非空，校验文件针对内部成品，不是 Actions 外层 ZIP。
