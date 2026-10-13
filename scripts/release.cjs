@@ -67,7 +67,10 @@ async function publishRelease({ github, repo, plan }) {
     catch (error) { if (error.status === 404) return null; throw error; }
   };
   // Refuse to publish binaries against a pre-existing tag for another commit.
-  const tagged = await optional(() => api.getCommit({ ...repo, ref: `tags/${plan.tag}` }));
+  // getCommit returns 422 for an absent tag, not 404. Check the ref endpoint first.
+  const ref = `tags/${plan.tag}`;
+  const existingRef = await optional(() => github.rest.git.getRef({ ...repo, ref }));
+  const tagged = existingRef ? (await api.getCommit({ ...repo, ref })).data : null;
   if (tagged && tagged.sha !== plan.sha) throw new Error('同名标签指向其他提交，停止发布');
   let release = await optional(() => api.getReleaseByTag({ ...repo, tag: plan.tag }));
   if (release && release.target_commitish !== plan.sha) throw new Error('同名 Release 的源码提交不匹配');

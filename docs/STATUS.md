@@ -58,6 +58,8 @@
 
 ## 已解决、应保留回归的兼容问题
 
+首次 `main` 合并 `853d336` 的[三平台构建及成品验证全部通过](https://github.com/Mammmth/NeoResourceUnpackTool/actions/runs/38395017712)，但发布前检查不存在的标签时，GitHub commits API 返回 422，导致发布失败，尚未创建 Release。现改用 Git refs API 判断标签是否存在，再核对已有标签的提交；回归测试模拟不存在标签的真实 422 行为。修复后的真实发布仍待后续 Actions 验证。
+
 | 问题 | 当前处理与验证 |
 | --- | --- |
 | 英文 Windows 控制台输出中文导致编码异常 | 脚本 UTF-8 输出、CI `PYTHONUTF8=1`、编码回归测试 |
