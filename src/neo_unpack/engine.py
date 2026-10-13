@@ -6,6 +6,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import uuid
 from pathlib import Path, PurePosixPath
 from threading import Event
 
@@ -44,6 +45,10 @@ class SevenZip:
     def __init__(self, executable: Path | None = None, cancel: Event | None = None):
         self.executable = executable or find_engine()
         self.cancel = cancel or Event()
+        # Bare -p asks for interactive input, including in a detached Windows
+        # process. An explicit throwaway probe keeps encrypted-header detection
+        # non-interactive; actual passwords still come only from the user's list.
+        self._probe = "neo-probe-" + uuid.uuid4().hex
 
     def run(self, arguments: list[str], password: str | None = None) -> tuple[int, str]:
         if self.cancel.is_set():
@@ -97,7 +102,7 @@ class SevenZip:
         raise UnpackError("压缩包结构或数据校验失败，可能已损坏；这不一定是密码错误。")
 
     def inspect(self, archive: Path, password: str | None = None) -> list[dict[str, str]]:
-        code, text = self.run(["l", "-slt", "-sccUTF-8", "-p" + (password or ""), "--", str(archive)], password)
+        code, text = self.run(["l", "-slt", "-sccUTF-8", "-p" + (password if password is not None else self._probe), "--", str(archive)], password)
         if code:
             self._failure(text, password=password)
         # Keep the archive header for errors (e.g. a missing last RAR volume),
@@ -128,7 +133,7 @@ class SevenZip:
             raise PasswordRequired("此压缩包需要密码。")
         destination.mkdir(parents=True, exist_ok=False)
         code, text = self.run([
-            "x", "-y", "-aou", "-bd", "-bb0", "-sccUTF-8", "-p" + (password or ""),
+            "x", "-y", "-aou", "-bd", "-bb0", "-sccUTF-8", "-p" + (password if password is not None else self._probe),
             "-o" + str(destination), "--", str(archive),
         ], password)
         if code:

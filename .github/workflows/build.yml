@@ -37,7 +37,8 @@ jobs:
       - name: Fetch pinned official engine
         run: python scripts/fetch_engine.py
       - name: Test extraction and desktop UI
-        run: python -m pytest -q
+        timeout-minutes: 5
+        run: python -m pytest -v
       - name: Build desktop application
         run: python scripts/build.py
       - name: Test packaged application
