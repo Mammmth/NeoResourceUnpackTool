@@ -36,7 +36,8 @@ def fake_flags(path, local=True, central=True):
     path.write_bytes(data)
 
 
-@pytest.mark.parametrize("prefix", [b"", b"\xff\xd8pretend picture\xff\xd9", b"X" * (4 * 1024 * 1024 - 2)])
+@pytest.mark.parametrize("prefix", [b"", b"\xff\xd8pretend picture\xff\xd9", b"X" * (4 * 1024 * 1024 - 2)],
+                         ids=["renamed", "image-prefix", "chunk-boundary-prefix"])
 def test_disguised_zip(make_zip, prefix):
     path = make_zip("picture.jpg", prefix=prefix)
     found = detect(path)
