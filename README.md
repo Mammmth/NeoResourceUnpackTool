@@ -2,6 +2,14 @@
 
 Windows / macOS 自动解压桌面工具。一次处理一个压缩包或一组分卷，自动完成真实格式识别、前置载体剥离、ZIP 伪加密修复、常用密码尝试、递归解压及最终目录整理。
 
+## 项目文档
+
+- [AGENTS.md](AGENTS.md)：后续 agent 的工作入口、产品约束和验证约定。
+- [需求与验收](docs/REQUIREMENTS.md)：已确认范围、递归规则、输出策略及验收追踪。
+- [架构说明](docs/ARCHITECTURE.md)：模块责任、任务流程、配置/缓存契约和扩展边界。
+- [开发与验证](docs/DEVELOPMENT.md)：环境准备、测试、三平台打包、CI 与兼容问题。
+- [交接状态](docs/STATUS.md)：已验证基线、现有限制及后续建议。
+
 ## 使用方式
 
 1. 打开 Windows 的 `NeoResourceUnpackTool.exe` 或 macOS 的 `NeoResourceUnpackTool.app`。发行包内置 Python、Qt 和完整 7-Zip，无需另行安装。
