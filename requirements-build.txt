@@ -1,0 +1,11 @@
+# Reproducible versions used for the first desktop release.
+PySide6-Essentials==6.12.0
+shiboken6==6.12.0
+pyinstaller==6.22.3
+pyinstaller-hooks-contrib==2026.8
+pytest==9.1.1
+pytest-timeout==2.4.0
+pyzipper==0.4.0
+pycryptodomex==3.24.1
+certifi==2026.7.22
+charset-normalizer==3.5.1

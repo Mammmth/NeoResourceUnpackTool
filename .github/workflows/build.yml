@@ -1,0 +1,108 @@
+name: Desktop build
+
+on:
+  push:
+    branches: [dev, main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  # main 的每次推送都保留；dev/PR 的新提交仍取消过期构建。
+  group: desktop-${{ github.ref }}-${{ github.ref == 'refs/heads/main' && github.run_id || 'latest' }}
+  cancel-in-progress: true
+
+jobs:
+  release-tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Test release preparation and failure recovery
+        run: node --test tests/release.test.cjs
+
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-2022
+            artifact: Windows-x64
+          - os: macos-15
+            artifact: macOS-Apple-Silicon
+          - os: macos-15-intel
+            artifact: macOS-Intel
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    env:
+      QT_QPA_PLATFORM: offscreen
+      PYTHONUTF8: '1'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+          cache: pip
+      - name: Install build dependencies
+        run: python -m pip install -r requirements-build.txt -e ".[dev]"
+      - name: Fetch pinned official engine
+        run: python scripts/fetch_engine.py
+      - name: Test extraction and desktop UI
+        timeout-minutes: 5
+        run: python -m pytest -v
+      - name: Build desktop application
+        run: python scripts/build.py
+      - name: Test packaged application
+        run: python scripts/smoke_build.py
+      - uses: actions/upload-artifact@v4
+        with:
+          name: NeoResourceUnpackTool-${{ matrix.artifact }}
+          path: |
+            dist/*.exe
+            dist/*.zip
+          if-no-files-found: error
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: Verification-${{ matrix.artifact }}
+          path: artifacts/
+          if-no-files-found: ignore
+
+  release:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: [build, release-tests]
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: NeoResourceUnpackTool-*
+          merge-multiple: true
+          path: release-assets
+      - name: Publish tested packages and commit notes
+        uses: actions/github-script@v9
+        with:
+          script: |
+            const { prepareRelease, publishRelease } = require('./scripts/release.cjs');
+            const plan = prepareRelease({
+              sha: context.sha,
+              before: context.payload.before,
+              repository: `${context.repo.owner}/${context.repo.repo}`,
+              serverUrl: process.env.GITHUB_SERVER_URL,
+              runUrl: `${process.env.GITHUB_SERVER_URL}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`,
+              assetDir: 'release-assets',
+            });
+            const release = await publishRelease({ github, repo: context.repo, plan });
+            core.notice(`Release: ${release.html_url}`);
+            await core.summary.addLink('下载本次 Release', release.html_url).write();
