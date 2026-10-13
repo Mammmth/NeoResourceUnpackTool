@@ -75,7 +75,10 @@ function fakeApi() {
   const state = { release: null, assets: [], published: 0, created: 0, failUpload: false, tagSha: null, error: null };
   const missing = () => { throw Object.assign(new Error('not found'), { status: 404 }); };
   const repos = {
-    getCommit: async () => { if (state.error) throw state.error; return state.tagSha ? { data: { sha: state.tagSha } } : missing(); },
+    getCommit: async () => {
+      if (!state.tagSha) throw Object.assign(new Error('No commit found for SHA'), { status: 422 });
+      return { data: { sha: state.tagSha } };
+    },
     getReleaseByTag: async () => state.release ? { data: state.release } : missing(),
     createRelease: async args => { state.created++; state.release = { ...args, id: 10, html_url: 'https://example.invalid/release' }; return { data: state.release }; },
     listReleaseAssets: async () => ({ data: state.assets }),
@@ -86,7 +89,11 @@ function fakeApi() {
     },
     updateRelease: async args => { state.published++; Object.assign(state.release, args); return { data: state.release }; },
   };
-  return { state, github: { rest: { repos }, paginate: async (method, args) => (await method(args)).data } };
+  const git = { getRef: async () => {
+    if (state.error) throw state.error;
+    return state.tagSha ? { data: { object: { sha: state.tagSha } } } : missing();
+  } };
+  return { state, github: { rest: { repos, git }, paginate: async (method, args) => (await method(args)).data } };
 }
 
 test('upload failure leaves draft; retry repairs all assets before publishing; published rerun is a no-op', async t => {
@@ -104,6 +111,7 @@ test('upload failure leaves draft; retry repairs all assets before publishing; p
   assert.equal(state.created, 1);
   assert.equal(state.release.draft, false);
   assert.deepEqual(state.assets.map(a => a.name), plan.assets.map(a => a.name));
+  state.tagSha = plan.sha;
   await publishRelease(args);
   assert.equal(state.created, 1);
   assert.equal(state.published, 1);
