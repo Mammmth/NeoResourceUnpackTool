@@ -4,44 +4,58 @@ import sys
 from pathlib import Path
 from threading import Event
 
-from PySide6.QtCore import Qt, QThread, Signal, QUrl
-from PySide6.QtGui import QDesktopServices, QFont, QCloseEvent
+from PySide6.QtCore import QPointF, Qt, QThread, Signal, QUrl
+from PySide6.QtGui import QColor, QDesktopServices, QCloseEvent, QPainter, QPen, QPolygonF
 from PySide6.QtWidgets import (
-    QApplication, QCheckBox, QComboBox, QDialog, QDialogButtonBox, QFileDialog,
-    QFrame, QHBoxLayout, QInputDialog, QLabel, QLineEdit, QListWidget,
-    QListWidgetItem, QMainWindow, QMessageBox, QPlainTextEdit, QProgressBar,
-    QPushButton, QSizePolicy, QVBoxLayout, QWidget,
+    QApplication, QButtonGroup, QComboBox, QDialog, QDialogButtonBox, QFileDialog,
+    QFrame, QGridLayout, QHBoxLayout, QInputDialog, QLabel, QLineEdit, QListWidget,
+    QListView, QListWidgetItem, QMainWindow, QMessageBox, QPlainTextEdit, QProgressBar,
+    QPushButton, QRadioButton, QScrollArea, QSizePolicy, QSplitter, QVBoxLayout, QWidget,
 )
 
 from .config import load_settings, save_settings
-from .model import Cancelled, FILENAME_ENCODINGS, PasswordRequired, Settings, UnpackError
+from .model import Cancelled, FILENAME_ENCODINGS, PasswordRequired, Settings, TaskProgress, UnpackError
 from .volumes import make_group
 from .workflow import UnpackTask
 
 
 STYLE = """
-QMainWindow, QDialog { background: #F5F5F0; color: #20312D; }
-QWidget { font-size: 13px; color: #20312D; }
-QFrame#card { background: #FFFFFF; border: 1px solid #DDE4DD; border-radius: 14px; }
-QFrame#drop { background: #EEF3ED; border: 2px dashed #A6BBA9; border-radius: 14px; }
-QLabel#eyebrow { color: #527661; font-size: 11px; font-weight: 700; letter-spacing: 2px; }
-QLabel#title { font-size: 28px; font-weight: 700; }
+QMainWindow, QDialog, QScrollArea { background: #F5F5F0; color: #20312D; }
+QWidget { background: #F5F5F0; font-size: 13px; font-weight: 400; color: #20312D; }
+QLabel, QRadioButton { background: transparent; }
+QFrame#drop { background: #EEF3ED; border: 2px dashed #A6BBA9; border-radius: 10px; }
+QLabel#title { font-size: 22px; font-weight: 700; }
 QLabel#section { font-size: 16px; font-weight: 600; }
-QLabel#muted { color: #6A7770; }
-QLabel#status { font-size: 16px; font-weight: 600; }
-QPushButton { background: #FFFFFF; border: 1px solid #C9D5CA; border-radius: 8px; padding: 9px 16px; }
-QPushButton:hover { background: #EAF0E8; border-color: #8EAA94; }
-QPushButton:disabled { color: #9CA59F; background: #F0F2ED; border-color: #E0E5DE; }
-QPushButton#primary { background: #255D45; color: white; border: none; font-weight: 600; padding: 12px 24px; }
+QLabel#muted { color: #59675F; }
+QLabel#status { font-size: 15px; font-weight: 600; }
+QPushButton { background: #FAFBF8; border: 1px solid #B8C8BC; border-radius: 6px; padding: 8px 12px; }
+QPushButton:hover { background: #EAF0E8; border-color: #6E9177; }
+QPushButton:focus, QComboBox:focus, QLineEdit:focus { border: 1px solid #255D45; }
+QPushButton:pressed { background: #D3E5D4; }
+QPushButton:disabled { color: #88958C; background: #F0F2ED; border-color: #DDE4DB; }
+QPushButton#primary { background: #255D45; color: #FAFBF8; border: 1px solid #255D45; font-weight: 600; }
 QPushButton#primary:hover { background: #1D4C38; }
-QPushButton#primary:disabled { background: #A3B9AA; }
-QComboBox, QLineEdit, QPlainTextEdit, QListWidget { background: #FAFBF8; border: 1px solid #D6DFD4; border-radius: 7px; padding: 7px; selection-background-color: #D3E5D4; }
-QComboBox { min-height: 22px; }
-QComboBox::drop-down { border: none; width: 25px; }
-QProgressBar { border: none; background: #E5EBE1; border-radius: 3px; min-height: 6px; max-height: 6px; }
-QProgressBar::chunk { background: #38744F; border-radius: 3px; }
-QCheckBox { spacing: 8px; }
-QToolTip { background: #FFFFFF; color: #20312D; border: 1px solid #D6DFD4; }
+QPushButton#primary:disabled { background: #A3B9AA; border-color: #A3B9AA; }
+QComboBox, QLineEdit, QPlainTextEdit, QListWidget { color: #20312D; background: #FAFBF8; border: 1px solid #C7D3C8; border-radius: 6px; padding: 7px; selection-background-color: #D3E5D4; selection-color: #20312D; }
+QComboBox { min-height: 22px; padding-right: 24px; }
+QComboBox::drop-down { border: none; width: 24px; background: transparent; }
+QComboBox::down-arrow { image: none; }
+QComboBox QAbstractItemView { background: #FAFBF8; color: #20312D; border: 1px solid #A6BBA9; outline: 0; selection-background-color: #D3E5D4; selection-color: #20312D; }
+QComboBox QAbstractItemView::item { min-height: 28px; padding: 3px 8px; }
+QComboBox QAbstractItemView::item:selected, QListWidget::item:selected { background: #D3E5D4; color: #20312D; }
+QProgressBar { border: 1px solid #CDD9CE; background: #E5EBE1; border-radius: 4px; min-height: 18px; max-height: 18px; text-align: center; color: #20312D; }
+QProgressBar::chunk { background: #A6C9AF; border-radius: 3px; }
+QProgressBar#overall { min-height: 6px; max-height: 6px; border: none; }
+QProgressBar#overall::chunk { background: #38744F; }
+QRadioButton { spacing: 7px; padding: 4px 0; }
+QRadioButton::indicator { width: 16px; height: 16px; border-radius: 9px; border: 1px solid #7A9181; background: #FAFBF8; }
+QRadioButton::indicator:checked { background: qradialgradient(cx:0.5, cy:0.5, radius:0.5, fx:0.5, fy:0.5, stop:0 #255D45, stop:0.48 #255D45, stop:0.5 #FAFBF8, stop:1 #FAFBF8); border-color: #255D45; }
+QRadioButton::indicator:hover { border-color: #255D45; }
+QRadioButton:focus { color: #255D45; text-decoration: underline; }
+QRadioButton:disabled { color: #88958C; }
+QRadioButton::indicator:disabled { border-color: #B8C8BC; }
+QSplitter::handle { background: #DDE4DB; }
+QToolTip { background: #FAFBF8; color: #20312D; border: 1px solid #C7D3C8; }
 """
 
 
@@ -89,103 +103,145 @@ class DropArea(QFrame):
             event.acceptProposedAction()
 
 
+class EncodingComboBox(QComboBox):
+    def paintEvent(self, event):
+        super().paintEvent(event)
+        # Native arrows can disappear when a system dark palette meets light QSS.
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        painter.setPen(QPen(QColor("#527661" if self.isEnabled() else "#88958C"), 1.5))
+        x, y = self.width() - 13, self.height() / 2
+        painter.drawPolyline(QPolygonF([QPointF(x - 4, y - 2), QPointF(x, y + 2), QPointF(x + 4, y - 2)]))
+
+
+class ChoiceGroup(QWidget):
+    changed = Signal()
+
+    def __init__(self, options, value):
+        super().__init__()
+        self.group = QButtonGroup(self)
+        self.options = options
+        layout = QGridLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setHorizontalSpacing(18)
+        layout.setVerticalSpacing(2)
+        for index, (text, data) in enumerate(options):
+            button = QRadioButton(text)
+            self.group.addButton(button, index)
+            layout.addWidget(button, index // 2, index % 2)
+            button.setChecked(data == value)
+        self.group.buttonToggled.connect(lambda _, checked: self.changed.emit() if checked else None)
+
+    def value(self):
+        return self.options[self.group.checkedId()][1]
+
+
 class PasswordDialog(QDialog):
-    def __init__(self, passwords: list[str], parent=None):
+    def __init__(self, passwords: list[str], parent=None, on_change=None):
         super().__init__(parent)
-        self.setWindowTitle("管理常用密码")
-        self.resize(530, 470)
+        self.on_change = on_change
+        self.setWindowTitle("管理密码")
+        self.resize(560, 480)
         layout = QVBoxLayout(self)
         layout.setContentsMargins(24, 24, 24, 24)
         layout.setSpacing(14)
         layout.addWidget(label("常用密码", "section"))
-        layout.addWidget(label("按顺序尝试；成功的密码在本次任务后续层优先使用。", "muted", True))
+        layout.addWidget(label("按顺序尝试，成功后在当前任务中优先使用。", "muted", True))
         self.list = QListWidget()
         self.list.setSelectionMode(QListWidget.SelectionMode.ExtendedSelection)
         self.list.itemDoubleClicked.connect(self.edit)
         layout.addWidget(self.list)
         row = QHBoxLayout()
         self.input = QLineEdit()
-        self.input.setPlaceholderText("输入一个密码，按回车添加")
-        self.input.setEchoMode(QLineEdit.EchoMode.Password)
+        self.input.setPlaceholderText("输入密码，按回车添加")
         self.input.returnPressed.connect(self.add_input)
         add = QPushButton("添加")
+        add.setAutoDefault(False)
         add.clicked.connect(self.add_input)
         row.addWidget(self.input)
         row.addWidget(add)
         layout.addLayout(row)
         row = QHBoxLayout()
         import_button = QPushButton("从 TXT 导入")
+        import_button.setAutoDefault(False)
         import_button.clicked.connect(self.import_text)
         delete = QPushButton("删除所选")
+        delete.setAutoDefault(False)
         delete.clicked.connect(self.remove)
-        self.show_passwords = QCheckBox("显示密码")
-        self.show_passwords.toggled.connect(self.refresh)
         row.addWidget(import_button)
         row.addWidget(delete)
         row.addStretch()
-        row.addWidget(self.show_passwords)
         layout.addLayout(row)
-        layout.addWidget(label("双击可编辑。TXT 每行一个密码，保留密码中的空格。\n密码仅保存在本机配置中，可随时删除。", "muted", True))
-        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Save | QDialogButtonBox.StandardButton.Cancel)
-        buttons.button(QDialogButtonBox.StandardButton.Save).setText("保存密码库")
-        buttons.button(QDialogButtonBox.StandardButton.Cancel).setText("取消")
-        buttons.accepted.connect(self.accept)
+        layout.addWidget(label("双击编辑。TXT 每行一个密码，保留首尾空格。修改后自动保存。", "muted", True))
+        self.save_status = label("", "muted", True)
+        layout.addWidget(self.save_status)
+        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Close)
+        buttons.button(QDialogButtonBox.StandardButton.Close).setText("关闭")
+        buttons.button(QDialogButtonBox.StandardButton.Close).setAutoDefault(False)
         buttons.rejected.connect(self.reject)
         layout.addWidget(buttons)
         for password in passwords:
-            self.add_password(password)
+            self.add_password(password, notify=False)
 
     def passwords(self) -> list[str]:
         return [self.list.item(i).data(Qt.ItemDataRole.UserRole) for i in range(self.list.count())]
 
-    def accept(self):
-        self.add_input()
-        super().accept()
+    def commit(self):
+        self.refresh()
+        if self.on_change:
+            saved = self.on_change(self.passwords())
+            self.save_status.setText("已自动保存" if saved else "保存失败，修改暂存在本窗口。请检查配置目录权限。")
 
-    def add_password(self, password):
+    def add_password(self, password, *, notify=True):
         if password and password not in self.passwords():
             item = QListWidgetItem()
             item.setData(Qt.ItemDataRole.UserRole, password)
             self.list.addItem(item)
             self.refresh()
+            if notify:
+                self.commit()
 
     def add_input(self):
         self.add_password(self.input.text())
         self.input.clear()
 
     def refresh(self):
-        show = self.show_passwords.isChecked()
-        self.input.setEchoMode(QLineEdit.EchoMode.Normal if show else QLineEdit.EchoMode.Password)
         for index in range(self.list.count()):
             item = self.list.item(index)
-            item.setText(f"{index + 1:02d}   " + (item.data(Qt.ItemDataRole.UserRole) if show else "••••••••"))
+            item.setText(f"{index + 1:02d}   " + item.data(Qt.ItemDataRole.UserRole))
 
     def edit(self, item):
-        value, okay = QInputDialog.getText(self, "编辑密码", "密码", QLineEdit.EchoMode.Password, item.data(Qt.ItemDataRole.UserRole))
-        if okay and value:
-            if value != item.data(Qt.ItemDataRole.UserRole) and value in self.passwords():
+        value, okay = QInputDialog.getText(self, "编辑密码", "密码", QLineEdit.EchoMode.Normal, item.data(Qt.ItemDataRole.UserRole))
+        if okay and value and value != item.data(Qt.ItemDataRole.UserRole):
+            if value in self.passwords():
                 return
             item.setData(Qt.ItemDataRole.UserRole, value)
-            self.refresh()
+            self.commit()
 
     def remove(self):
-        for item in self.list.selectedItems():
+        selected = self.list.selectedItems()
+        for item in selected:
             self.list.takeItem(self.list.row(item))
-        self.refresh()
+        if selected:
+            self.commit()
 
     def import_text(self):
         path, _ = QFileDialog.getOpenFileName(self, "导入密码库", "", "文本文件 (*.txt);;所有文件 (*)")
         if path:
             try:
                 text = Path(path).read_text("utf-8-sig")
+                before = self.passwords()
                 for password in text.splitlines():
-                    self.add_password(password)
+                    self.add_password(password, notify=False)
+                if self.passwords() != before:
+                    self.commit()
             except (OSError, UnicodeError):
                 QMessageBox.warning(self, "导入失败", "请使用 UTF-8 编码的 TXT 文件，每行一个密码。")
 
 
 class Worker(QThread):
     message = Signal(str)
+    progress = Signal(object)
     completed = Signal(object)
     failed = Signal(str, str)
     ready = Signal(object)
@@ -198,10 +254,11 @@ class Worker(QThread):
     def run(self):
         try:
             if self.task is None:
-                self.task = UnpackTask([Path(p) for p in self.paths], self.settings, cancel=self.cancel, log=self.message.emit)
+                self.task = UnpackTask([Path(p) for p in self.paths], self.settings, cancel=self.cancel, log=self.message.emit, progress=self.progress.emit)
             else:
                 self.task.settings = self.settings
                 self.task.log = self.message.emit
+                self.task.progress = self.progress.emit
             self.ready.emit(self.task)
             self.completed.emit(self.task.run())
         except PasswordRequired as error:
@@ -221,8 +278,8 @@ class MainWindow(QMainWindow):
         self.setWindowTitle("Neo · 自动解压")
         help_menu = self.menuBar().addMenu("帮助")
         help_menu.addAction("第三方组件与许可证", self.open_licenses)
-        self.resize(950, 900)
-        self.setMinimumSize(850, 860)
+        self.resize(1180, 800)
+        self.setMinimumSize(1000, 700)
         self.paths: list[str] = []
         self.task: UnpackTask | None = None
         self.worker: Worker | None = None
@@ -238,28 +295,33 @@ class MainWindow(QMainWindow):
         central = QWidget()
         self.setCentralWidget(central)
         layout = QVBoxLayout(central)
-        layout.setContentsMargins(32, 26, 32, 24)
-        layout.setSpacing(18)
-        layout.addWidget(label("NEO RESOURCE UNPACK TOOL", "eyebrow"))
-        layout.addWidget(label("层层解开，只留下你要的内容。", "title"))
-        layout.addWidget(label("识别真实格式 · 还原隐写压缩包 · 自动尝试密码 · 按策略递归", "muted"))
+        layout.setContentsMargins(24, 20, 24, 20)
+        layout.setSpacing(16)
+        layout.addWidget(label("Neo 自动解压", "title"))
+        self.splitter = QSplitter(Qt.Orientation.Horizontal)
+        layout.addWidget(self.splitter, 1)
+        left_scroll = QScrollArea()
+        left_scroll.setWidgetResizable(True)
+        left_scroll.setFrameShape(QFrame.Shape.NoFrame)
+        left_scroll.setMinimumWidth(450)
+        left = QWidget()
+        left_scroll.setWidget(left)
+        actions = QVBoxLayout(left)
+        actions.setContentsMargins(0, 0, 18, 0)
+        actions.setSpacing(14)
         self.drop = DropArea()
         self.drop.selected.connect(self.select_files)
-        layout.addWidget(self.drop)
-        row = QHBoxLayout()
-        row.setSpacing(18)
-        card = QFrame()
-        card.setObjectName("card")
-        card.setMinimumHeight(215)
+        actions.addWidget(self.drop)
+        card = QWidget()
         controls = QVBoxLayout(card)
-        controls.setContentsMargins(20, 18, 20, 18)
-        controls.setSpacing(10)
-        controls.addWidget(label("解压设置", "section"))
-        self.mode = QComboBox()
-        for text, value in [("解压到源目录下的新文件夹", "folder"), ("直接解压到源目录", "direct"), ("解压到固定目录", "fixed"), ("固定目录下新建文件夹", "fixed_folder")]:
-            self.mode.addItem(text, value)
-        self.mode.setCurrentIndex(self.mode.findData(self.settings.output_mode))
-        self.mode.currentIndexChanged.connect(self.update_fixed)
+        controls.setContentsMargins(0, 0, 0, 0)
+        controls.setSpacing(8)
+        controls.addWidget(label("输出位置", "section"))
+        self.mode = ChoiceGroup([
+            ("源目录新建文件夹", "folder"), ("直接解压到源目录", "direct"),
+            ("直接解压到固定目录", "fixed"), ("固定目录新建文件夹", "fixed_folder"),
+        ], self.settings.output_mode)
+        self.mode.changed.connect(self.update_fixed)
         controls.addWidget(self.mode)
         self.directory_widget = QWidget()
         directory_row = QHBoxLayout(self.directory_widget)
@@ -271,66 +333,41 @@ class MainWindow(QMainWindow):
         directory_row.addWidget(self.directory)
         directory_row.addWidget(self.browse_directory)
         controls.addWidget(self.directory_widget)
-        options = QHBoxLayout()
-        self.depth = QComboBox()
-        self.depth.addItem("默认策略 · 自动递归", "auto")
-        self.depth.addItem("仅解压 1 层", "one")
-        self.depth.setCurrentIndex(self.depth.findData(self.settings.depth))
-        self.retention = QComboBox()
-        self.retention.addItem("仅保留最终结果", False)
-        self.retention.addItem("保留中间产物", True)
-        self.retention.setCurrentIndex(int(self.settings.keep_intermediates))
-        options.addWidget(self.depth)
-        options.addWidget(self.retention)
-        controls.addLayout(options)
+        controls.addWidget(label("解压层数", "section"))
+        self.depth = ChoiceGroup([("自动递归", "auto"), ("仅解压一层", "one")], self.settings.depth)
+        controls.addWidget(self.depth)
+        controls.addWidget(label("保留内容", "section"))
+        self.retention = ChoiceGroup([("仅保留最终结果", False), ("保留中间产物", True)], self.settings.keep_intermediates)
+        controls.addWidget(self.retention)
+        controls.addWidget(label("原文件", "section"))
+        self.delete_sources = ChoiceGroup([
+            ("保留原文件", False), ("解压完成后删除", True),
+        ], self.settings.delete_sources)
+        self.delete_sources.setToolTip("结果成功写入后，直接删除本次选中的原文件或全部分卷；失败、取消时保留。")
+        controls.addWidget(self.delete_sources)
         encoding_row = QHBoxLayout()
         encoding_label = label("文件名编码")
-        self.filename_encoding = QComboBox()
+        self.filename_encoding = EncodingComboBox()
+        self.filename_encoding.setView(QListView())
         for value, text in FILENAME_ENCODINGS.items():
             self.filename_encoding.addItem(text, value)
         self.filename_encoding.setCurrentIndex(self.filename_encoding.findData(self.settings.filename_encoding))
-        self.filename_encoding.setToolTip("用于旧 ZIP 的文件名乱码。优先保留压缩包自带的 Unicode 名称；不改变文件内容或密码。自动检测可能不准确。")
+        self.filename_encoding.setToolTip("用于旧 ZIP 文件名乱码。优先保留已有 Unicode 名称；自动检测可能不准确。")
         encoding_label.setBuddy(self.filename_encoding)
         encoding_row.addWidget(encoding_label)
         encoding_row.addWidget(self.filename_encoding, 1)
         controls.addLayout(encoding_row)
-        controls.addWidget(label("自动去掉包装目录，保留内容自身的目录结构。", "muted", True))
-        row.addWidget(card, 3)
-        password_card = QFrame()
-        password_card.setObjectName("card")
-        passwords = QVBoxLayout(password_card)
-        passwords.setContentsMargins(20, 18, 20, 18)
-        passwords.addWidget(label("常用密码库", "section"))
+        actions.addWidget(card)
+        passwords = QHBoxLayout()
         self.password_count = label("", "muted")
-        passwords.addWidget(self.password_count)
-        passwords.addWidget(label("自动依次尝试。未匹配时可补充密码，继续当前任务。", "muted", True))
-        passwords.addStretch()
+        passwords.addWidget(self.password_count, 1)
         self.password_button = QPushButton("管理密码")
         self.password_button.clicked.connect(self.manage_passwords)
         passwords.addWidget(self.password_button)
-        row.addWidget(password_card, 2)
-        layout.addLayout(row)
+        actions.addLayout(passwords)
         self.settings_widgets = [card, self.password_button]
-        self.status = label("等待选择文件", "status", True)
-        layout.addWidget(self.status)
-        self.progress = QProgressBar()
-        self.progress.setTextVisible(False)
-        self.progress.setRange(0, 1)
-        self.progress.setValue(0)
-        layout.addWidget(self.progress)
-        self.log = QPlainTextEdit()
-        self.log.setReadOnly(True)
-        self.log.setPlaceholderText("运行过程会显示在这里。原始文件始终保留。")
-        self.log.setMinimumHeight(100)
-        self.log.setMaximumBlockCount(2000)
-        layout.addWidget(self.log, 1)
+        actions.addStretch()
         footer = QHBoxLayout()
-        self.open_button = QPushButton("打开结果目录")
-        self.open_button.clicked.connect(self.open_output)
-        self.open_button.setEnabled(False)
-        self.cache_button = QPushButton("打开任务缓存")
-        self.cache_button.clicked.connect(self.open_cache)
-        self.cache_button.setVisible(False)
         self.stop = QPushButton("取消")
         self.stop.clicked.connect(self.cancel_task)
         self.stop.setEnabled(False)
@@ -338,25 +375,67 @@ class MainWindow(QMainWindow):
         self.start.setObjectName("primary")
         self.start.clicked.connect(self.start_task)
         self.start.setEnabled(False)
-        footer.addWidget(self.open_button)
-        footer.addWidget(self.cache_button)
-        footer.addStretch()
         footer.addWidget(self.stop)
-        footer.addWidget(self.start)
-        layout.addLayout(footer)
+        footer.addWidget(self.start, 1)
+        actions.addLayout(footer)
+        self.splitter.addWidget(left_scroll)
+        right = QWidget()
+        right.setMinimumWidth(380)
+        monitor = QVBoxLayout(right)
+        monitor.setContentsMargins(18, 0, 0, 0)
+        monitor.setSpacing(10)
+        self.status = label("等待选择文件", "status", True)
+        monitor.addWidget(self.status)
+        self.progress = QProgressBar()
+        self.progress.setObjectName("overall")
+        self.progress.setAccessibleName("整体运行状态")
+        self.progress.setTextVisible(False)
+        self.progress.setRange(0, 1)
+        self.progress.setValue(0)
+        monitor.addWidget(self.progress)
+        self.extraction_status = label("解压进度：等待开始", "muted", True)
+        monitor.addWidget(self.extraction_status)
+        self.extraction_progress = QProgressBar()
+        self.extraction_progress.setAccessibleName("当前压缩包解压进度")
+        self.extraction_progress.setRange(0, 100)
+        self.extraction_progress.setValue(0)
+        monitor.addWidget(self.extraction_progress)
+        monitor.addWidget(label("运行日志", "section"))
+        self.log = QPlainTextEdit()
+        self.log.setReadOnly(True)
+        self.log.setPlaceholderText("文件、处理阶段和密码验证结果会显示在这里。")
+        self.log.setMinimumHeight(300)
+        self.log.setMaximumBlockCount(10000)
+        monitor.addWidget(self.log, 1)
+        locations = QHBoxLayout()
+        self.open_button = QPushButton("打开结果目录")
+        self.open_button.clicked.connect(self.open_output)
+        self.open_button.setEnabled(False)
+        self.cache_button = QPushButton("打开任务缓存")
+        self.cache_button.clicked.connect(self.open_cache)
+        self.cache_button.setVisible(False)
+        locations.addWidget(self.open_button)
+        locations.addWidget(self.cache_button)
+        locations.addStretch()
+        monitor.addLayout(locations)
+        self.splitter.addWidget(right)
+        self.splitter.setChildrenCollapsible(False)
+        self.splitter.setSizes([490, 640])
+        self.splitter.setStretchFactor(0, 0)
+        self.splitter.setStretchFactor(1, 1)
         self.update_fixed()
         self.update_password_count()
         if config_error:
             self.log.appendPlainText("已有配置无法读取，当前使用默认设置；原配置文件尚未修改。")
 
     def update_fixed(self):
-        enabled = self.mode.currentData().startswith("fixed")
+        enabled = self.mode.value().startswith("fixed")
         self.directory.setEnabled(enabled)
         self.browse_directory.setEnabled(enabled)
         self.directory_widget.setVisible(enabled)
 
     def update_password_count(self):
-        self.password_count.setText(f"已保存 {len(self.settings.passwords)} 个密码")
+        self.password_count.setText(f"密码库：{len(self.settings.passwords)} 个密码")
 
     def choose_directory(self):
         directory = QFileDialog.getExistingDirectory(self, "选择输出目录", self.directory.text())
@@ -364,21 +443,26 @@ class MainWindow(QMainWindow):
             self.directory.setText(directory)
 
     def manage_passwords(self):
-        dialog = PasswordDialog(self.settings.passwords, self)
-        if dialog.exec() == QDialog.DialogCode.Accepted:
-            self.settings.passwords = dialog.passwords()
-            try:
-                save_settings(self.settings)
-            except (OSError, UnpackError):
-                QMessageBox.warning(self, "保存失败", "密码库暂存在本窗口，无法写入本机配置目录。")
-            self.update_password_count()
+        dialog = PasswordDialog(self.settings.passwords, self, self.save_passwords)
+        dialog.exec()
+
+    def save_passwords(self, passwords):
+        self.settings.passwords = list(passwords)
+        self.update_password_count()
+        try:
+            save_settings(self.settings)
+        except (OSError, UnpackError):
+            QMessageBox.warning(self, "保存失败", "密码库暂存在本窗口，无法写入本机配置目录。")
+            return False
+        return True
 
     def read_settings(self):
         return Settings(
-            output_mode=self.mode.currentData(), fixed_directory=self.directory.text(),
-            depth=self.depth.currentData(), keep_intermediates=self.retention.currentData(),
+            output_mode=self.mode.value(), fixed_directory=self.directory.text(),
+            depth=self.depth.value(), keep_intermediates=self.retention.value(),
             passwords=list(self.settings.passwords),
             filename_encoding=self.filename_encoding.currentData(),
+            delete_sources=self.delete_sources.value(),
         )
 
     def select_files(self, paths):
@@ -398,6 +482,8 @@ class MainWindow(QMainWindow):
         self.status.setText("已就绪")
         self.progress.setRange(0, 1)
         self.progress.setValue(0)
+        self.extraction_progress.setValue(0)
+        self.extraction_status.setText("解压进度：等待开始")
         self.start.setText("开始解压")
         self.start.setEnabled(True)
         self.open_button.setEnabled(False)
@@ -428,6 +514,7 @@ class MainWindow(QMainWindow):
             task.cancel.clear()
         self.worker = Worker(self.paths, self.settings, task)
         self.worker.message.connect(self.on_message)
+        self.worker.progress.connect(self.on_progress)
         self.worker.ready.connect(self.on_ready)
         self.worker.completed.connect(self.on_completed)
         self.worker.failed.connect(self.on_failed)
@@ -435,6 +522,8 @@ class MainWindow(QMainWindow):
         self.set_busy(True)
         self.open_button.setEnabled(False)
         self.cache_button.setVisible(False)
+        self.extraction_progress.setValue(0)
+        self.extraction_status.setText("解压进度：等待解压")
         self.progress.setRange(0, 0)
         self.status.setText("正在识别与处理…")
         self.worker.start()
@@ -444,22 +533,43 @@ class MainWindow(QMainWindow):
 
     def on_message(self, message):
         self.log.appendPlainText(message)
-        self.status.setText(message)
+
+    def on_progress(self, update: TaskProgress):
+        if update.stage == "删除原文件":
+            self.stop.setEnabled(False)
+        context = f"第 {update.depth} 层 · {update.archive}" if update.depth else ""
+        self.status.setText(f"{update.stage} · {context}" if context else update.stage)
+        if update.percent is not None:
+            self.extraction_progress.setValue(update.percent)
+            self.extraction_status.setText(f"当前包解压：{update.percent}%")
+        elif update.stage in {"准备处理", "检查压缩包"}:
+            self.extraction_progress.setValue(0)
+            self.extraction_status.setText("解压进度：等待解压")
+        else:
+            self.extraction_status.setText("当前包已解压" if self.extraction_progress.value() == 100 else "解压进度：等待解压")
 
     def on_completed(self, result):
         self.output, self.retry = result.output, False
         self.progress.setRange(0, 1)
         self.progress.setValue(1)
         self.status.setText(f"已完成 · {result.archives} 个压缩包 / {result.layers} 层")
+        if result.warnings:
+            self.status.setText("解压已完成，原文件清理未完成，请查看日志")
         self.log.appendPlainText(f"最终内容：{result.output}")
         self.open_button.setEnabled(True)
+        self.cache_button.setVisible(result.session is not None)
         self.start.setText("再次解压")
+        if result.deleted_sources:
+            self.paths = []
+            self.start.setText("请选择新文件")
+            self.start.setEnabled(False)
 
     def on_failed(self, kind, message):
         self.retry = self.task is not None
         self.progress.setRange(0, 1)
         self.progress.setValue(0)
         self.status.setText({"password": "等待补充密码", "cancel": "已取消", "error": "处理未完成"}[kind])
+        self.extraction_status.setText("解压进度：已停止")
         self.log.appendPlainText(message)
         if self.task:
             self.log.appendPlainText(f"任务缓存：{self.task.session}")

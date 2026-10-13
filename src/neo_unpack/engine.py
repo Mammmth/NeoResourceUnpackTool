@@ -9,6 +9,7 @@ import tempfile
 import uuid
 from pathlib import Path, PurePosixPath
 from threading import Event
+from typing import Callable
 
 from .model import Cancelled, MissingVolume, PasswordRequired, UnpackError, UnsafeArchive
 from .filename_encoding import zip_member_name
@@ -43,46 +44,80 @@ def check_member_path(name: str) -> None:
 
 
 class SevenZip:
-    def __init__(self, executable: Path | None = None, cancel: Event | None = None):
+    def __init__(self, executable: Path | None = None, cancel: Event | None = None,
+                 progress: Callable[[int | None], None] = lambda _: None):
         self.executable = executable or find_engine()
         self.cancel = cancel or Event()
+        self.progress = progress
         # Bare -p asks for interactive input, including in a detached Windows
         # process. An explicit throwaway probe keeps encrypted-header detection
         # non-interactive; actual passwords still come only from the user's list.
         self._probe = "neo-probe-" + uuid.uuid4().hex
 
-    def run(self, arguments: list[str], password: str | None = None) -> tuple[int, str]:
+    def run(self, arguments: list[str], password: str | None = None, *, track_progress=False) -> tuple[int, str]:
         if self.cancel.is_set():
             raise Cancelled("已取消。")
-        # No shell. Passwords are never included in logs, manifests or errors.
+        # No shell. Never log command arguments or raw engine output.
         command = [str(self.executable), *arguments]
         environment = os.environ.copy()
         environment["LC_ALL"] = "C"
-        with tempfile.TemporaryFile() as output:
-            try:
-                process = subprocess.Popen(
-                    command, stdin=subprocess.DEVNULL, stdout=output, stderr=subprocess.STDOUT,
-                    env=environment,
-                    creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0,
-                )
-            except OSError as error:
-                raise UnpackError("无法启动内置 7-Zip 引擎，请检查安装文件和执行权限。") from error
-            try:
-                while process.poll() is None:
-                    if self.cancel.wait(0.1):
-                        process.terminate()
-                        try:
-                            process.wait(timeout=3)
-                        except subprocess.TimeoutExpired:
-                            process.kill()
-                            process.wait()
-                        raise Cancelled("已取消，原始输入和任务缓存已保留。")
-                output.seek(0)
-                text = output.read().decode("utf-8", errors="replace")
-            finally:
-                if process.poll() is None:
-                    process.kill()
-                    process.wait()
+        with tempfile.TemporaryFile() as output, tempfile.TemporaryDirectory(prefix="neo-progress-") as folder:
+            # Separate handles keep reader seeks from moving the child's write offset.
+            progress_path = Path(folder) / "progress"
+            with progress_path.open("wb") as progress_output, progress_path.open("rb") as progress_input:
+                return self._run_process(command, environment, output, progress_output, progress_input, track_progress)
+
+    def _run_process(self, command, environment, output, progress_output, progress_input, track_progress):
+        pending = b""
+        last_percent = -1
+
+        def read_progress():
+            nonlocal pending, last_percent
+            if not track_progress:
+                return
+            while chunk := progress_input.read(8192):
+                pending += chunk
+                # 7-Zip uses carriage returns / backspaces, not necessarily lines.
+                segments = re.split(rb"[\r\n\b]", pending)
+                for segment in segments:
+                    match = re.match(rb" *([0-9]{1,3})%", segment)
+                    if match and int(match[1]) <= 100:
+                        percent = min(99, int(match[1]))
+                        if percent > last_percent:
+                            last_percent = percent
+                            self.progress(percent)
+                # Bound memory even for very long progress filenames.
+                pending = segments[-1]
+                if len(pending) > 4096:
+                    pending = b"x"
+
+        try:
+            process = subprocess.Popen(
+                command, stdin=subprocess.DEVNULL, stdout=output,
+                stderr=progress_output if track_progress else subprocess.STDOUT,
+                env=environment,
+                creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0,
+            )
+        except OSError as error:
+            raise UnpackError("无法启动内置 7-Zip 引擎，请检查安装文件和执行权限。") from error
+        try:
+            while process.poll() is None:
+                read_progress()
+                if self.cancel.wait(0.1):
+                    process.terminate()
+                    try:
+                        process.wait(timeout=3)
+                    except subprocess.TimeoutExpired:
+                        process.kill()
+                        process.wait()
+                    raise Cancelled("已取消，原始输入和任务缓存已保留。")
+            read_progress()
+            output.seek(0)
+            text = output.read().decode("utf-8", errors="replace")
+        finally:
+            if process.poll() is None:
+                process.kill()
+                process.wait()
         return process.returncode, text
 
     @staticmethod
@@ -128,15 +163,17 @@ class SevenZip:
         return records
 
     def extract(self, archive: Path, destination: Path, password: str | None = None) -> None:
+        self.progress(None)
         records = self.inspect(archive, password)
         encrypted = any(record.get("Encrypted") == "+" for record in records)
         if encrypted and password is None:
             raise PasswordRequired("此压缩包需要密码。")
         destination.mkdir(parents=True, exist_ok=False)
+        self.progress(0)
         code, text = self.run([
-            "x", "-y", "-aou", "-bd", "-bb0", "-sccUTF-8", "-p" + (password if password is not None else self._probe),
+            "x", "-y", "-aou", "-bsp2", "-bse1", "-bso1", "-bb0", "-sccUTF-8", "-p" + (password if password is not None else self._probe),
             "-o" + str(destination), "--", str(archive),
-        ], password)
+        ], password, track_progress=True)
         if code:
             try:
                 self._failure(text, password=password, encrypted=encrypted)
@@ -146,8 +183,11 @@ class SevenZip:
                 else:
                     raise
         for path in destination.rglob("*"):
+            if self.cancel.is_set():
+                raise Cancelled("已取消，任务缓存已保留。")
             if path.is_symlink() or (path.is_file() and path.stat().st_nlink > 1):
                 raise UnsafeArchive("解压结果包含链接，任务已停止，未写入最终目录。")
+        self.progress(100)
 
     def _extract_utf8_zip(self, archive: Path, destination: Path, password: str) -> None:
         # Windows 7-Zip converts ZIP passwords with CP_ACP, even for ZIPs made
@@ -156,10 +196,14 @@ class SevenZip:
 
         shutil.rmtree(destination)
         destination.mkdir()
+        self.progress(0)
+        completed = 0
+        last_percent = 0
         try:
             with pyzipper.AESZipFile(archive) as source:
                 source.setpassword(password.encode("utf-8"))
                 members = source.infolist()
+                total = sum(member.file_size for member in members if not member.is_dir())
                 names = [zip_member_name(member) for member in members]
                 for member, name in zip(members, names):
                     check_member_path(name)
@@ -183,5 +227,10 @@ class SevenZip:
                             if self.cancel.is_set():
                                 raise Cancelled("已取消，任务缓存已保留。")
                             writer.write(block)
+                            completed += len(block)
+                            percent = min(99, completed * 100 // max(1, total))
+                            if percent != last_percent:
+                                last_percent = percent
+                                self.progress(percent)
         except (RuntimeError, pyzipper.BadZipFile, NotImplementedError) as error:
             raise PasswordRequired("需要正确密码，或加密数据已经损坏。") from error

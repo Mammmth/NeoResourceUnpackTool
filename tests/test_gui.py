@@ -4,7 +4,7 @@ import time
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 import pytest
-from PySide6.QtWidgets import QApplication, QDialog
+from PySide6.QtWidgets import QApplication, QDialog, QLineEdit, QMessageBox, QInputDialog, QFileDialog
 from neo_unpack import config
 from neo_unpack.gui import MainWindow, PasswordDialog, STYLE
 
@@ -49,9 +49,8 @@ def test_password_editor_preserves_spaces(app):
     dialog.add_input()
     dialog.add_password("original")
     assert dialog.passwords() == ["original", " has spaces "]
-    assert " has spaces " not in dialog.list.item(1).text()
-    dialog.show_passwords.setChecked(True)
     assert " has spaces " in dialog.list.item(1).text()
+    assert dialog.input.echoMode() == QLineEdit.EchoMode.Normal
     dialog.close()
 
 
@@ -65,3 +64,92 @@ def test_filename_encoding_control_persists(app, monkeypatch, tmp_path):
     reopened = MainWindow()
     assert reopened.filename_encoding.currentData() == "cp932"
     reopened.close()
+
+
+def test_delete_sources_option_persists_and_disables_repeat(app, make_zip, monkeypatch, tmp_path):
+    monkeypatch.setattr(config, "config_directory", lambda: tmp_path / "config")
+    window = MainWindow()
+    assert not window.read_settings().delete_sources
+    window.delete_sources.group.button(1).click()
+    window.close()
+    window = MainWindow()
+    assert window.read_settings().delete_sources
+    source = make_zip()
+    window.select_files([str(source)])
+    window.start_task()
+    deadline = time.monotonic() + 15
+    while window.busy and time.monotonic() < deadline:
+        app.processEvents()
+        time.sleep(0.01)
+    assert not window.busy and not source.exists()
+    assert window.output and window.open_button.isEnabled()
+    assert not window.start.isEnabled() and not window.paths
+    window.select_files([str(make_zip("next.zip"))])
+    assert window.start.isEnabled()
+    window.close()
+
+
+def test_password_changes_save_without_closing(app, monkeypatch, tmp_path):
+    monkeypatch.setattr(config, "config_directory", lambda: tmp_path / "config")
+    window = MainWindow()
+    dialog = PasswordDialog([], window, window.save_passwords)
+    dialog.input.setText(" with spaces ")
+    dialog.add_input()
+    assert config.load_settings().passwords == [" with spaces "]
+    monkeypatch.setattr(QInputDialog, "getText", lambda *args: ("edited", True))
+    dialog.edit(dialog.list.item(0))
+    assert config.load_settings().passwords == ["edited"]
+    imported = tmp_path / "passwords.txt"
+    imported.write_text("edited\n another \n\nthird", encoding="utf-8-sig")
+    monkeypatch.setattr(QFileDialog, "getOpenFileName", lambda *args: (str(imported), ""))
+    dialog.import_text()
+    assert config.load_settings().passwords == ["edited", " another ", "third"]
+    dialog.list.item(0).setSelected(True)
+    dialog.remove()
+    assert config.load_settings().passwords == [" another ", "third"]
+    dialog.reject()  # Closing / Escape does not undo saved changes.
+    assert config.load_settings().passwords == [" another ", "third"]
+    window.close()
+
+
+def test_password_save_failure_is_visible(app, monkeypatch, tmp_path):
+    from neo_unpack import gui
+    monkeypatch.setattr(config, "config_directory", lambda: tmp_path / "config")
+    window = MainWindow()
+    monkeypatch.setattr(gui, "save_settings", lambda _: (_ for _ in ()).throw(OSError("denied")))
+    warnings = []
+    monkeypatch.setattr(QMessageBox, "warning", lambda *args: warnings.append(args))
+    dialog = PasswordDialog([], window, window.save_passwords)
+    dialog.input.setText("kept in memory")
+    dialog.add_input()
+    assert warnings and "保存失败" in dialog.save_status.text()
+    assert window.settings.passwords == ["kept in memory"]
+    assert config.load_settings().passwords == []
+    dialog.close()
+    window.close()
+
+
+def test_radio_settings_and_progress_states(app, monkeypatch, tmp_path):
+    from neo_unpack.model import TaskProgress
+    monkeypatch.setattr(config, "config_directory", lambda: tmp_path / "config")
+    window = MainWindow()
+    window.show()
+    for index, (_, mode) in enumerate(window.mode.options):
+        window.mode.group.button(index).click()
+        app.processEvents()
+        assert window.read_settings().output_mode == mode
+        assert window.directory_widget.isVisible() == mode.startswith("fixed")
+    window.depth.group.button(1).click()
+    window.retention.group.button(1).click()
+    assert window.read_settings().depth == "one"
+    assert window.read_settings().keep_intermediates
+    window.on_progress(TaskProgress("解压", "inner.7z", 2, 63))
+    assert window.extraction_progress.value() == 63
+    assert "第 2 层" in window.status.text() and "inner.7z" in window.status.text()
+    window.on_progress(TaskProgress("检查压缩包", "inner.7z", 2))
+    assert window.extraction_progress.value() == 0
+    window.on_progress(TaskProgress("解压", "inner.7z", 2, 37))
+    window.on_failed("cancel", "已取消")
+    assert window.extraction_progress.value() == 37
+    assert "已停止" in window.extraction_status.text()
+    window.close()

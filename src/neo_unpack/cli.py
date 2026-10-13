@@ -18,6 +18,8 @@ def main() -> int:
     parser.add_argument("--output", type=Path, help="固定输出目录；默认在源目录新建文件夹")
     parser.add_argument("--one-layer", action="store_true")
     parser.add_argument("--keep-intermediates", action="store_true")
+    parser.add_argument("--delete-sources", action=argparse.BooleanOptionalAction, default=None,
+                        help="成功后删除选中的原文件/全部分卷；默认沿用本机配置，可用 --no-delete-sources 保留")
     parser.add_argument("--password-file", type=Path, help="每行一个密码的 UTF-8 TXT")
     parser.add_argument("--filename-encoding", choices=FILENAME_ENCODINGS,
                         help="旧 ZIP 文件名编码；default 跟随引擎，auto 自动检测，例如 cp932（日语）、gbk（简体中文）")
@@ -25,6 +27,8 @@ def main() -> int:
     task = None
     try:
         settings = load_settings()
+        if args.delete_sources is not None:
+            settings.delete_sources = args.delete_sources
         if args.filename_encoding:
             settings.filename_encoding = args.filename_encoding
         if args.output:

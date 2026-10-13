@@ -46,7 +46,9 @@ git diff --check
 | `test_core.py` | 二进制识别、扫描边界、ZIP 伪加密、密码/UTF-8、续接、递归、冲突、四种输出、取消、路径保护 |
 | `test_rar.py` | 真实 RAR3/RAR5、固实、内容/文件名加密、新旧分卷、末卷缺失 |
 | `test_zip_split.py` | 真实 `.z01 + .zip`，含伪加密组合 |
-| `test_gui.py` | 窗口运行真实任务、任务创建失败后的状态、密码空格及隐藏显示 |
+| `test_gui.py` | 窗口运行真实任务、任务创建失败后的状态、密码明文和空格、增删改/导入即时保存、保存失败、单选配置与进度状态 |
+| `test_delete_sources.py` | 成功后删除、默认保留、分卷范围、失败/取消、文件替换、删除失败与结果保留、旧配置及 CLI 覆盖 |
+| `test_progress.py` | 子进程退出前的进度、分块及回车/退格解析、取消、真实递归密码续接、成功密码日志、UTF-8 回退字节进度 |
 | `test_build_scripts.py` | 旧 Windows 控制台编码下脚本帮助输出 |
 | `test_filename_encoding.py` | 手动代码页、自动检测歧义、Unicode 优先、加密回退、数字/PKZIP 分卷、ZIP64、原件保护、编码变更重建缓存 |
 
@@ -71,7 +73,13 @@ python scripts/smoke_build.py
 
 `dist/releases/` 是首次交付时手工汇总的本地产物目录，构建脚本不会自动维护它；可能不存在或过期。
 
-`smoke_build.py` 启动实际打包程序的 `--smoke-test` 入口，验证 Qt 字体、内置引擎、普通 ZIP、中文密码 ZIP、CP932 文件名及自动检测，输出 `artifacts/bundled-smoke.json` 与 `.png`。检查报告 `ok`、`utf8_zip_password`、`filename_encoding`、`font_families`，并实际查看截图；这不替代拖放和密码编辑等人工交互验收。
+`smoke_build.py` 启动实际打包程序的 `--smoke-test` 入口，验证 Qt 字体、内置引擎、普通 ZIP、中文密码 ZIP、CP932 文件名及自动检测，以及密码自动保存、Worker 进度和成功密码日志，输出 `artifacts/bundled-smoke.json`、主窗口 `.png`、`-encoding.png` 和 `-passwords.png`。检查报告 `ok`、`utf8_zip_password`、`filename_encoding`、`gui_progress`、`password_autosave`、`delete_sources`、`font_families`，并实际查看截图；这不替代拖放和密码编辑等人工交互验收。
+
+macOS 可用原生平台插件补验成品（此入口属于打包程序，不能改为 `python -m neo_unpack --smoke-test`）：
+
+```sh
+QT_QPA_PLATFORM=cocoa dist/NeoResourceUnpackTool.app/Contents/MacOS/NeoResourceUnpackTool --smoke-test artifacts/native-smoke.json
+```
 
 Windows 成品测试必须使用原生 `windows` Qt 平台插件，脚本已覆盖 CI 的离屏变量。此前 Windows 离屏截图所有文字显示方框，原生模式显示正常；不能因为只看到程序退出码为 0 就忽略截图。
 
@@ -109,6 +117,6 @@ codesign --verify --deep --strict dist/NeoResourceUnpackTool.app
 
 ## 手工验收及文档维护
 
-GUI 或输入流程变更时，用临时测试目录核对拖放一组分卷、拒绝多个独立包、添加/编辑/删除/导入密码、错误密码后补充继续、取消、四种输出和打开结果。确认源文件散列未变、结果目录符合需求、日志不泄露密码。
+GUI 或输入流程变更时，用临时测试目录核对拖放一组分卷、拒绝多个独立包、添加/编辑/删除/导入密码、错误密码后补充继续、取消、四种输出和打开结果。默认配置下确认源文件散列未变；启用删除时确认仅成功发布后删除选中原件/分卷，失败与取消保留，删除失败有提示；确认结果目录符合需求、日志仅显示验证成功的密码，任务清单和失败候选值不包含密码；检查双进度条、最小窗口布局和编码下拉菜单。
 
 纯文档改动只需检查相对链接、代码路径/命令、需求一致性和 `git diff --check`。验证状态应写明对应提交，避免把旧的 58 项通过报告当作后续版本的证据。

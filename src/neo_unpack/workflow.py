@@ -3,18 +3,20 @@ from __future__ import annotations
 import json
 import re
 import shutil
+import stat
 import tempfile
 import zipfile
 from dataclasses import asdict
 from pathlib import Path
 from threading import Event
+from typing import Callable
 
 from .detect import OffsetReader, detect
 from .engine import SevenZip
 from .filename_encoding import normalize_zip_names
 from .model import (
     ArchiveInfo, Cancelled, InvalidInput, Log, PasswordRequired, Result, Settings,
-    UnpackError, VolumeGroup,
+    TaskProgress, UnpackError, VolumeGroup,
 )
 from .volumes import discover_groups, is_volume_name, make_group
 from .ziprepair import repair_zip_copy
@@ -63,13 +65,18 @@ class UnpackTask:
     """One logical input, with cached successful nodes for password retry."""
 
     def __init__(self, paths: list[Path], settings: Settings, *, engine: Path | None = None,
-                 log: Log = lambda _: None, cancel: Event | None = None, cache_root: Path | None = None):
+                 log: Log = lambda _: None, cancel: Event | None = None, cache_root: Path | None = None,
+                 progress: Callable[[TaskProgress], None] = lambda _: None):
         settings.validate()
         self.group = make_group(paths)
         self.settings = settings
         self.log = log
+        self.progress = progress
+        self.current_archive = ""
+        self.current_depth = 0
+        self._stage = ""
         self.cancel = cancel or Event()
-        self.engine = SevenZip(engine, self.cancel)
+        self.engine = SevenZip(engine, self.cancel, self.extraction_progress)
         self.session = Path(tempfile.mkdtemp(prefix="neo-unpack-", dir=cache_root))
         self.nodes = self.session / "过程"
         self.nodes.mkdir()
@@ -82,11 +89,22 @@ class UnpackTask:
         self._log_lines: list[str] = []
         self._finished = False
         self._filename_encoding = settings.filename_encoding
-        self._input_stats = [(p, p.stat().st_size, p.stat().st_mtime_ns) for p in self.group.paths]
+        self._input_stats = [(p, p.stat()) for p in self.group.paths]
 
     def emit(self, message: str) -> None:
+        # Keep each event on one line, including user-provided names/passwords.
+        message = message.replace("\r", "\\r").replace("\n", "\\n").replace("\t", "\\t")
         self._log_lines.append(message)
         self.log(message)
+
+    def report_progress(self, stage: str, percent: int | None = None) -> None:
+        if stage != self._stage:
+            self._stage = stage
+            self.emit(f"{stage}：{self.current_archive}" if self.current_archive else stage)
+        self.progress(TaskProgress(stage, self.current_archive, self.current_depth, percent))
+
+    def extraction_progress(self, percent: int | None) -> None:
+        self.report_progress("检查压缩包" if percent is None else "解压", percent)
 
     def check_cancel(self) -> None:
         if self.cancel.is_set():
@@ -112,6 +130,7 @@ class UnpackTask:
         if key in self.prepared:
             return self.prepared[key]
         self.check_cancel()
+        self.report_progress("识别格式")
         info = self.info(group)
         if info is None:
             raise InvalidInput("没有识别到有效的 ZIP、RAR 或 7z 压缩结构，无法解压。")
@@ -124,6 +143,7 @@ class UnpackTask:
         directory.mkdir()
         source_dir = directory / "还原包"
         source_dir.mkdir()
+        self.report_progress("合并分卷" if group.style == "numeric" else "复制与还原")
         if group.style == "numeric":
             if info.kind not in {"zip", "7z"}:
                 raise InvalidInput("数字分卷首版支持 ZIP/7z；RAR 请使用标准 RAR 分卷命名。")
@@ -152,6 +172,7 @@ class UnpackTask:
                 staged_parts.append(target)
             archive = staged_parts[-1] if group.style == "zip_split" else staged_parts[0]
             if group.style == "zip_split":
+                self.report_progress("合并分卷")
                 archive = directory / "合并包.zip"
                 join_zip_disks(staged_parts, archive, self.cancel)
         else:
@@ -162,6 +183,7 @@ class UnpackTask:
         else:
             self.emit(f"已识别 {info.kind.upper()}，使用副本处理。")
         if info.kind == "zip":
+            self.report_progress("检查 ZIP 伪加密")
             repaired = directory / "修复包.zip"
             self.copy(archive, repaired)
             count = repair_zip_copy(repaired, self.cancel)
@@ -171,6 +193,7 @@ class UnpackTask:
             else:
                 repaired.unlink()
             named = directory / "文件名还原包.zip"
+            self.report_progress("处理文件名编码")
             if normalize_zip_names(archive, named, self.settings.filename_encoding, self.cancel, self.emit):
                 archive = named
         self.prepared[key] = archive, info, directory
@@ -201,7 +224,7 @@ class UnpackTask:
             self.archive_count += 1
             if password is not None:
                 self.preferred_passwords = [password, *[p for p in self.preferred_passwords if p != password]]
-                self.emit("密码验证成功，后续层将优先尝试。")
+                self.emit(f"密码（{password}）验证成功，后续层将优先尝试。")
             self.save_manifest("处理中")
             return destination
         if destination.exists():
@@ -218,8 +241,11 @@ class UnpackTask:
         if depth > 64 or self.archive_count >= 10000:
             raise UnpackError("递归层数或包数量异常，已停止并保留缓存。")
         self.layers = max(self.layers, depth)
-        self.emit(f"正在处理第 {depth} 层。")
+        self.current_archive, self.current_depth = group.entry.name, depth
+        self.emit(f"正在处理第 {depth} 层：{group.entry.name}")
+        self.report_progress("准备处理")
         extracted = self.unpack(group)
+        self.report_progress("检查本层内容")
         root = extracted
         # Peel wrapper-only directories. Sidecar TXT files do not add layers.
         while True:
@@ -353,13 +379,59 @@ class UnpackTask:
         (self.session / "task.json").write_text(json.dumps(payload, ensure_ascii=False, indent=2), "utf-8")
         (self.session / "process.log").write_text("\n".join(self._log_lines), "utf-8")
 
+    @staticmethod
+    def _same_source(path: Path, original) -> bool:
+        current = path.lstat()
+        return stat.S_ISREG(current.st_mode) and all(
+            getattr(current, field) == getattr(original, field)
+            for field in ("st_dev", "st_ino", "st_size", "st_mtime_ns", "st_ctime_ns")
+        )
+
+    def _delete_sources(self) -> tuple[int, list[str]]:
+        # Called only after publishing results and writing the success manifest.
+        # Preflight every selected volume before unlinking any of them.
+        self.report_progress("删除原文件")
+        if self.cancel.is_set():
+            message = "解压已完成，已取消原文件删除，原文件保留。"
+            self.emit(message)
+            return 0, [message]
+        for path, original in self._input_stats:
+            try:
+                unchanged = self._same_source(path, original)
+            except OSError:
+                unchanged = False
+            if not unchanged:
+                message = f"解压已完成，原文件发生变化或无法检查，未删除本组原文件：{path}"
+                self.emit(message)
+                return 0, [message]
+        if self.cancel.is_set():
+            message = "解压已完成，已取消原文件删除，原文件保留。"
+            self.emit(message)
+            return 0, [message]
+        deleted, warnings = 0, []
+        # Results are committed. Finish this short cleanup without cancelling
+        # between volumes; unlink failures are warnings, never extraction retries.
+        for path, original in self._input_stats:
+            try:
+                if not self._same_source(path, original):
+                    raise OSError("原文件已发生变化")
+                path.unlink()
+            except OSError:
+                message = f"解压已完成，但原文件未删除（可能已变化、被占用或无权限）：{path}"
+                warnings.append(message)
+                self.emit(message)
+            else:
+                deleted += 1
+                self.emit(f"已删除原文件：{path}")
+        return deleted, warnings
+
     def run(self) -> Result:
         if self._finished:
             raise InvalidInput("此任务已完成，请新建任务。")
         self.settings.validate()
         try:
-            for path, size, modified in self._input_stats:
-                if not path.is_file() or (path.stat().st_size, path.stat().st_mtime_ns) != (size, modified):
+            for path, original in self._input_stats:
+                if not self._same_source(path, original):
                     raise InvalidInput("原始输入在处理期间发生变化，请重新选择文件。")
             if self.settings.filename_encoding != self._filename_encoding:
                 # Successful cached layers may have decoded names using the old
@@ -374,12 +446,24 @@ class UnpackTask:
             finals: list[tuple[Path, str]] = []
             self._walk(self.group, 1, finals)
             self.emit("解压完成，正在整理最终内容…")
+            self.current_archive, self.current_depth = "", 0
+            self.report_progress("整理结果")
             output = self._publish(finals)
-            self._finished = True
+            self.check_cancel()
             self.emit(f"完成，共处理 {self.archive_count} 个压缩包、{self.layers} 层。")
             self.save_manifest("完成")
-            shutil.rmtree(self.session, ignore_errors=True)
-            return Result(output, self.layers, self.archive_count, None)
         except Exception as error:
             self.save_manifest(type(error).__name__)
             raise
+        self._finished = True
+        deleted, warnings = self._delete_sources() if self.settings.delete_sources else (0, [])
+        if self.settings.delete_sources:
+            try:
+                self.save_manifest("解压完成，原文件清理未完成" if warnings else "完成")
+            except OSError:
+                message = "解压已完成，无法保存原文件清理记录。"
+                warnings.append(message)
+                self.emit(message)
+        if not warnings:
+            shutil.rmtree(self.session, ignore_errors=True)
+        return Result(output, self.layers, self.archive_count, self.session if warnings else None, deleted, warnings)

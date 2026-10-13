@@ -30,6 +30,14 @@ class UnpackError(Exception):
     """A user-facing failure; messages must never include passwords."""
 
 
+@dataclass(frozen=True)
+class TaskProgress:
+    stage: str
+    archive: str = ""
+    depth: int = 0
+    percent: int | None = None
+
+
 class InvalidInput(UnpackError):
     pass
 
@@ -58,10 +66,13 @@ class Settings:
     keep_intermediates: bool = False
     passwords: list[str] = field(default_factory=list)
     filename_encoding: str = "default"
+    delete_sources: bool = False
 
     def validate(self) -> None:
         if not isinstance(self.fixed_directory, str) or not isinstance(self.keep_intermediates, bool):
             raise InvalidInput("配置文件中的目录或产物保留选项格式不正确。")
+        if not isinstance(self.delete_sources, bool):
+            raise InvalidInput("原文件删除选项格式不正确。")
         if not isinstance(self.passwords, list) or not all(isinstance(p, str) for p in self.passwords):
             raise InvalidInput("密码库格式不正确。")
         if not isinstance(self.filename_encoding, str) or self.filename_encoding not in FILENAME_ENCODINGS:
@@ -98,6 +109,8 @@ class Result:
     layers: int
     archives: int
     session: Path | None
+    deleted_sources: int = 0
+    warnings: list[str] = field(default_factory=list)
 
 
 Log = Callable[[str], None]
