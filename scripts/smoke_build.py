@@ -15,7 +15,7 @@ report = root / "artifacts" / "bundled-smoke.json"
 report.parent.mkdir(exist_ok=True)
 report.unlink(missing_ok=True)
 environment = os.environ.copy()
-environment["QT_QPA_PLATFORM"] = "offscreen"
+environment["QT_QPA_PLATFORM"] = "windows" if sys.platform == "win32" else "offscreen"
 subprocess.run([str(executable), "--smoke-test", str(report)], env=environment, timeout=120, check=True)
 assert json.loads(report.read_text("utf-8"))["ok"]
 print("打包应用验证通过：Qt 界面、内置引擎和真实解压均正常。")

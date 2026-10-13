@@ -7,6 +7,7 @@ from pathlib import Path
 
 def main(report_path: str):
     from PySide6.QtWidgets import QApplication
+    from PySide6.QtGui import QFontDatabase
     from . import config
     from .engine import find_engine
     from .gui import MainWindow, STYLE
@@ -21,6 +22,8 @@ def main(report_path: str):
         app = QApplication.instance() or QApplication([])
         app.setStyle("Fusion")
         app.setStyleSheet(STYLE)
+        font_families = QFontDatabase.families()
+        assert font_families, "The platform did not load any display fonts"
         window = MainWindow()
         window.show()
         app.processEvents()
@@ -38,5 +41,5 @@ def main(report_path: str):
         assert (encrypted_result.output / "content.txt").read_text() == "UTF-8 password verified"
         window.grab().save(str(report.with_suffix(".png")))
         report.write_text(json.dumps({"ok": True, "engine": str(find_engine()), "layers": result.layers,
-                                      "utf8_zip_password": True}, ensure_ascii=False), "utf-8")
+                                      "utf8_zip_password": True, "font_families": len(font_families)}, ensure_ascii=False), "utf-8")
         window.close()
