@@ -48,6 +48,7 @@ git diff --check
 | `test_zip_split.py` | 真实 `.z01 + .zip`，含伪加密组合 |
 | `test_gui.py` | 窗口运行真实任务、任务创建失败后的状态、密码空格及隐藏显示 |
 | `test_build_scripts.py` | 旧 Windows 控制台编码下脚本帮助输出 |
+| `test_filename_encoding.py` | 手动代码页、自动检测歧义、Unicode 优先、加密回退、数字/PKZIP 分卷、ZIP64、原件保护、编码变更重建缓存 |
 
 pytest 单项超时当前为 45 秒，CI 测试步骤为 5 分钟。新增大样本应区分“确需长时测试”与“交互等待/死锁”，不能仅通过无限延长超时掩盖问题。
 
@@ -70,7 +71,7 @@ python scripts/smoke_build.py
 
 `dist/releases/` 是首次交付时手工汇总的本地产物目录，构建脚本不会自动维护它；可能不存在或过期。
 
-`smoke_build.py` 启动实际打包程序的 `--smoke-test` 入口，验证 Qt 字体、内置引擎、普通 ZIP 和中文密码 ZIP，输出 `artifacts/bundled-smoke.json` 与 `.png`。检查报告 `ok`、`utf8_zip_password`、`font_families`，并实际查看截图；这不替代拖放和密码编辑等人工交互验收。
+`smoke_build.py` 启动实际打包程序的 `--smoke-test` 入口，验证 Qt 字体、内置引擎、普通 ZIP、中文密码 ZIP、CP932 文件名及自动检测，输出 `artifacts/bundled-smoke.json` 与 `.png`。检查报告 `ok`、`utf8_zip_password`、`filename_encoding`、`font_families`，并实际查看截图；这不替代拖放和密码编辑等人工交互验收。
 
 Windows 成品测试必须使用原生 `windows` Qt 平台插件，脚本已覆盖 CI 的离屏变量。此前 Windows 离屏截图所有文字显示方框，原生模式显示正常；不能因为只看到程序退出码为 0 就忽略截图。
 
@@ -101,6 +102,7 @@ codesign --verify --deep --strict dist/NeoResourceUnpackTool.app
 - **Windows 日志编码**：CI 设置 `PYTHONUTF8=1`，脚本/CLI 对可用输出流显式设置 UTF-8；无控制台打包程序的 `sys.stdout` 可能不可用。
 - **引擎交互等待**：无密码探测不能用裸 `-p`；保留显式探测值和关闭输入逻辑。
 - **ZIP 中文密码**：保留 UTF-8 回退以及成品内的实际加密 ZIP 验证。仅验证源码依赖可导入不足以证明打包完整。
+- **ZIP 旧文件名代码页**：不能只传 `-mcp` 就宣称跨平台支持；保留 Unicode 元数据副本和真实 CP932/GBK 等文件名测试。`charset-normalizer` 升级后复查自动检测歧义、成品依赖及许可证。
 - **路径与资源目录**：Windows 保留名、跨平台大小写冲突、空格和中文路径需同时考虑；不要为解决碰撞而拆散资源目录。
 - **内置组件许可**：`scripts/build.py` 收集包许可证，其他文本位于 `third_party/` 和 [THIRD_PARTY_NOTICES.md](../THIRD_PARTY_NOTICES.md)。升级时一起核查。
 - **Linux**：核心部分有回退路径，不等于已支持 Linux 发行；构建脚本只接受 Windows/macOS。

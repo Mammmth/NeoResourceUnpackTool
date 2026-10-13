@@ -24,7 +24,7 @@ def main():
         raise SystemExit("请先运行 python scripts/fetch_engine.py")
     licenses = ROOT / "build" / "licenses"
     licenses.mkdir(parents=True, exist_ok=True)
-    for package in ["PySide6-Essentials", "shiboken6", "pyinstaller", "pyzipper", "pycryptodomex"]:
+    for package in ["PySide6-Essentials", "shiboken6", "pyinstaller", "pyzipper", "pycryptodomex", "charset-normalizer"]:
         distribution = importlib.metadata.distribution(package)
         for file in distribution.files or []:
             if "licenses" in file.parts:

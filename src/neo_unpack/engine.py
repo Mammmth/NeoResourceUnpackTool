@@ -11,6 +11,7 @@ from pathlib import Path, PurePosixPath
 from threading import Event
 
 from .model import Cancelled, MissingVolume, PasswordRequired, UnpackError, UnsafeArchive
+from .filename_encoding import zip_member_name
 
 
 def find_engine() -> Path:
@@ -159,14 +160,15 @@ class SevenZip:
             with pyzipper.AESZipFile(archive) as source:
                 source.setpassword(password.encode("utf-8"))
                 members = source.infolist()
-                for member in members:
-                    check_member_path(member.filename)
+                names = [zip_member_name(member) for member in members]
+                for member, name in zip(members, names):
+                    check_member_path(name)
                     if (member.external_attr >> 16) & 0o170000 == 0o120000:
                         raise UnsafeArchive("压缩包包含符号链接，已停止解压。")
-                for member in members:
+                for member, name in zip(members, names):
                     if self.cancel.is_set():
                         raise Cancelled("已取消，任务缓存已保留。")
-                    target = destination.joinpath(*PurePosixPath(member.filename.replace("\\", "/")).parts)
+                    target = destination.joinpath(*PurePosixPath(name.replace("\\", "/")).parts)
                     if member.is_dir():
                         target.mkdir(parents=True, exist_ok=True)
                         continue

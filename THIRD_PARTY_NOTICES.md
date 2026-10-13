@@ -29,3 +29,7 @@ Runtime binary paths are `vendor/7zip/windows/7z.exe` + `7z.dll`, or
 `vendor/7zip/macos/7zz`, within the application's bundle. Platform-specific
 builds include only the needed engine. Build scripts download official packages
 and verify pinned SHA-256 checksums before extracting them.
+
+**charset-normalizer 3.5.1** (MIT) is used to suggest legacy ZIP filename
+encodings. Its distribution license is copied to `third_party/package-licenses`.
+Source: https://github.com/jawah/charset_normalizer

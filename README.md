@@ -52,6 +52,16 @@ Windows / macOS 自动解压桌面工具。一次处理一个压缩包或一组�
 
 失败或取消时保留任务缓存；窗口里的“打开任务缓存”可以查看位置。当前版本的自动续接在**本窗口会话内**有效，关闭应用后缓存可手动取回，但不会自动恢复任务。成功后自动清理临时任务缓存。
 
+### 文件名编码（代码页）
+
+“解压设置”中的“文件名编码”用于解决旧 ZIP 的文件名乱码，保存后会应用于递归的各层 ZIP：
+
+- **默认**：保持引擎原来的处理方式，兼容旧配置。
+- **自动检测**：优先识别 UTF-8，再对旧编码进行推测；短文件名或多种编码都合理时保留默认，并在日志中提示手动选择。
+- **手动选择**：日语、简体中文、繁体中文、韩语、西欧、中欧、西里尔、土耳其、希腊、阿拉伯、希伯来、波罗的、泰语和 UTF-8。例如日文旧 ZIP 可选“日语（Shift-JIS / CP932）”。
+
+压缩包中已有明确 UTF-8 标记或有效 Unicode 文件名信息时优先保留。此设置只解释 ZIP 文件名，不转换文件内容或密码，也不强制改写 RAR/7z 名称。自动检测不能保证猜对；手动编码无法完整解读名称时会提示更换编码。失败后更改编码再继续，会从原始输入重新处理，旧过程缓存保留。
+
 ### 配置与边界
 
 - Windows 配置：`%APPDATA%/NeoResourceUnpackTool/settings.json`。
@@ -83,6 +93,7 @@ python -m neo_unpack
 ```sh
 neo-unpack-cli /path/to/archive.jpg --password-file /path/to/passwords.txt
 neo-unpack-cli /path/to/a.7z.001 /path/to/a.7z.002 --output /path/to/results
+neo-unpack-cli /path/to/japanese.zip --filename-encoding cp932
 ```
 
 ## 测试与打包

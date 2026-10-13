@@ -11,6 +11,7 @@ from threading import Event
 
 from .detect import OffsetReader, detect
 from .engine import SevenZip
+from .filename_encoding import normalize_zip_names
 from .model import (
     ArchiveInfo, Cancelled, InvalidInput, Log, PasswordRequired, Result, Settings,
     UnpackError, VolumeGroup,
@@ -80,6 +81,7 @@ class UnpackTask:
         self.archive_count = 0
         self._log_lines: list[str] = []
         self._finished = False
+        self._filename_encoding = settings.filename_encoding
         self._input_stats = [(p, p.stat().st_size, p.stat().st_mtime_ns) for p in self.group.paths]
 
     def emit(self, message: str) -> None:
@@ -168,6 +170,9 @@ class UnpackTask:
                 self.emit(f"已校验并修复 {count} 个 ZIP 伪加密条目。")
             else:
                 repaired.unlink()
+            named = directory / "文件名还原包.zip"
+            if normalize_zip_names(archive, named, self.settings.filename_encoding, self.cancel, self.emit):
+                archive = named
         self.prepared[key] = archive, info, directory
         self.save_manifest("处理中")
         return self.prepared[key]
@@ -356,6 +361,16 @@ class UnpackTask:
             for path, size, modified in self._input_stats:
                 if not path.is_file() or (path.stat().st_size, path.stat().st_mtime_ns) != (size, modified):
                     raise InvalidInput("原始输入在处理期间发生变化，请重新选择文件。")
+            if self.settings.filename_encoding != self._filename_encoding:
+                # Successful cached layers may have decoded names using the old
+                # setting. Start a new tree while preserving failed-run evidence.
+                self.nodes = Path(tempfile.mkdtemp(prefix="过程_", dir=self.session))
+                self.prepared.clear()
+                self.extracted.clear()
+                self.detected.clear()
+                self.layers = self.archive_count = 0
+                self._filename_encoding = self.settings.filename_encoding
+                self.emit("文件名编码已更改，重新从原始输入处理；旧过程缓存已保留。")
             finals: list[tuple[Path, str]] = []
             self._walk(self.group, 1, finals)
             self.emit("解压完成，正在整理最终内容…")

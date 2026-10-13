@@ -19,6 +19,7 @@
 | `detect.py` | 分块扫描 ZIP/RAR/7z 签名并校验结构；`OffsetReader` 提供载体偏移后的 ZIP 视图 |
 | `ziprestore.py` | PKZIP 分卷标准化，重建跨盘中央目录偏移及相关 ZIP64 元数据 |
 | `ziprepair.py` | 修改副本条目的 bit 0，读至 EOF 检查数据和 CRC；失败回滚对应字段 |
+| `filename_encoding.py` | 旧 ZIP 文件名解码、自动推测，在副本中央目录补充 Unicode Path；密码回退共用元数据解码 |
 | `engine.py` | 寻找引擎、子进程取消、目录预检查、解压、错误分类和 UTF-8 ZIP 回退 |
 | `workflow.py` | `UnpackTask` 组织还原、密码尝试、递归、缓存、冲突处理和最终发布 |
 | `config.py` | 本机设置加载、校验、临时文件写入后替换；非 Windows 设置文件权限为 0600 |
@@ -31,7 +32,7 @@
 1. GUI `start_task()` 保存并验证配置，创建 `Worker`；CLI 直接构造 `UnpackTask`。
 2. `UnpackTask.__init__()` 调用 `make_group()`，建立缓存目录并记录输入大小、修改时间。
 3. `run()` 检查输入是否变化，从深度 1 调用 `_walk()`。
-4. `prepare()` 识别格式，复制并剥离前缀；数字分卷合并、RAR 分卷规范副本名称、PKZIP 分卷重建；ZIP 再检查伪加密。
+4. `prepare()` 识别格式，复制并剥离前缀；数字分卷合并、RAR 分卷规范副本名称、PKZIP 分卷重建；ZIP 再检查伪加密并按配置还原文件名。
 5. `unpack()` 先探测是否需要密码，再顺序尝试配置密码；成功后缓存解压节点。
 6. `_walk()` 展开包装目录，按需求规则收集最终文件或进入下一层分支。
 7. `_publish()` 在目标所在目录中暂存整理结果，处理冲突后逐项移入目标。它不是跨所有文件的一次原子事务，不应对崩溃恢复作额外承诺。
@@ -48,6 +49,7 @@
 | `depth` | `auto` | `one` / `auto` |
 | `keep_intermediates` | `False` | 是否复制过程目录至最终输出 |
 | `passwords` | 空列表 | 用户配置字符串；实际尝试过滤空值并保持顺序去重 |
+| `filename_encoding` | `default` | `default` / `auto` 或 `FILENAME_ENCODINGS` 中的 Python codec 值，例如 `cp932`、`gbk` |
 
 - `ArchiveInfo(kind, offset)`：真实格式和压缩结构起点；不表示内容一定完整或密码一定正确。
 - `VolumeGroup(paths, style, name)`：已排序的一个逻辑包。`zip_split` 的 `entry` 是末尾 `.zip`，其他组的入口为首卷。
@@ -72,11 +74,19 @@ neo-unpack-*/
 
 `prepared`、`extracted`、`detected` 字典和 `preferred_passwords` 在内存中维护。重试复用同一 `UnpackTask`；输入大小或修改时间变化会要求重新选择。输入完整散列不是当前续接校验机制。
 
+文件名编码改变时，`run()` 在同一会话中另建 `过程_*`，清空节点缓存与计数并从顶层重新处理，旧过程目录保留用于排查。再次失败后沿用新编码缓存。保留中间产物时只发布当前过程树。
+
 `task.json` 记录状态、输入、成功节点路径和不含密码的配置；`process.log` 保存过程消息。它们用于排查，不是可加载的恢复协议。关闭窗口后没有自动恢复路径。若任务构造前即失败，不一定已有缓存。
 
 输出选择保留中间产物时复制 `过程/`，不是把整个会话目录及任务日志都发布出去。完成后任务临时目录仍会清理。
 
 ## 引擎、密码与取消
+
+旧 ZIP 文件名在伪加密修复后处理。Mac 版官方 7-Zip 对 `-mcp=932` 等参数不能提供与 Windows 相同的解码结果，因此不依赖此参数：`filename_encoding.py` 保持本地头及压缩数据字节不变，在副本中央目录中补充标准 `0x7075` Unicode Path 字段并重建结束记录。已有 UTF-8 或有效 Unicode Path 优先，ZIP64 条目及偏移保持有效。新增副本名为 `文件名还原包.zip`。
+
+自动检测使用 `charset-normalizer`，采样上限 64 KiB，限制候选为界面支持的代码页；推测不确定时不写转换副本。`pyzipper` 不自动遵循该 Unicode Path 字段，故 UTF-8 密码回退通过 `zip_member_name()` 得到与引擎一致的名称，再执行路径校验。不要把原始 CP437 解码结果直接当作目标名称。
+
+格式参考：[PKWARE ZIP 规范 §4.6.9](https://pkware.cachefly.net/webdocs/casestudies/APPNOTE.TXT)、[7-Zip ZIP 名称处理](https://github.com/ip7z/7zip/blob/26.04/CPP/7zip/Archive/Zip/ZipItem.cpp)。本配置不修改密码编码，不覆盖 RAR/7z 文件名。
 
 引擎搜索顺序为应用内置路径、`NEO_7ZIP` 指定路径、系统 `PATH`。发行包需包含 `7z.exe + 7z.dll` 或 `7zz`，不能依赖用户系统安装。
 

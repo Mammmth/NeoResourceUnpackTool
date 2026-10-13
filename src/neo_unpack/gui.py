@@ -14,7 +14,7 @@ from PySide6.QtWidgets import (
 )
 
 from .config import load_settings, save_settings
-from .model import Cancelled, PasswordRequired, Settings, UnpackError
+from .model import Cancelled, FILENAME_ENCODINGS, PasswordRequired, Settings, UnpackError
 from .volumes import make_group
 from .workflow import UnpackTask
 
@@ -221,8 +221,8 @@ class MainWindow(QMainWindow):
         self.setWindowTitle("Neo · 自动解压")
         help_menu = self.menuBar().addMenu("帮助")
         help_menu.addAction("第三方组件与许可证", self.open_licenses)
-        self.resize(950, 850)
-        self.setMinimumSize(850, 810)
+        self.resize(950, 900)
+        self.setMinimumSize(850, 860)
         self.paths: list[str] = []
         self.task: UnpackTask | None = None
         self.worker: Worker | None = None
@@ -283,6 +283,17 @@ class MainWindow(QMainWindow):
         options.addWidget(self.depth)
         options.addWidget(self.retention)
         controls.addLayout(options)
+        encoding_row = QHBoxLayout()
+        encoding_label = label("文件名编码")
+        self.filename_encoding = QComboBox()
+        for value, text in FILENAME_ENCODINGS.items():
+            self.filename_encoding.addItem(text, value)
+        self.filename_encoding.setCurrentIndex(self.filename_encoding.findData(self.settings.filename_encoding))
+        self.filename_encoding.setToolTip("用于旧 ZIP 的文件名乱码。优先保留压缩包自带的 Unicode 名称；不改变文件内容或密码。自动检测可能不准确。")
+        encoding_label.setBuddy(self.filename_encoding)
+        encoding_row.addWidget(encoding_label)
+        encoding_row.addWidget(self.filename_encoding, 1)
+        controls.addLayout(encoding_row)
         controls.addWidget(label("自动去掉包装目录，保留内容自身的目录结构。", "muted", True))
         row.addWidget(card, 3)
         password_card = QFrame()
@@ -367,6 +378,7 @@ class MainWindow(QMainWindow):
             output_mode=self.mode.currentData(), fixed_directory=self.directory.text(),
             depth=self.depth.currentData(), keep_intermediates=self.retention.currentData(),
             passwords=list(self.settings.passwords),
+            filename_encoding=self.filename_encoding.currentData(),
         )
 
     def select_files(self, paths):

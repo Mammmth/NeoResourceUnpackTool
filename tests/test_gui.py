@@ -53,3 +53,15 @@ def test_password_editor_preserves_spaces(app):
     dialog.show_passwords.setChecked(True)
     assert " has spaces " in dialog.list.item(1).text()
     dialog.close()
+
+
+def test_filename_encoding_control_persists(app, monkeypatch, tmp_path):
+    monkeypatch.setattr(config, "config_directory", lambda: tmp_path / "config")
+    window = MainWindow()
+    assert window.filename_encoding.currentData() == "default"
+    window.filename_encoding.setCurrentIndex(window.filename_encoding.findData("cp932"))
+    config.save_settings(window.read_settings())
+    window.close()
+    reopened = MainWindow()
+    assert reopened.filename_encoding.currentData() == "cp932"
+    reopened.close()

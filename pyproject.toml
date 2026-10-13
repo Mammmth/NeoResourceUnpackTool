@@ -7,7 +7,7 @@ name = "neo-resource-unpack-tool"
 version = "0.1.0"
 description = "自动识别、还原与递归解压 ZIP、RAR、7z 的跨平台桌面工具"
 requires-python = ">=3.11"
-dependencies = ["PySide6-Essentials>=6.8,<7", "pyzipper>=0.4,<0.5"]
+dependencies = ["PySide6-Essentials>=6.8,<7", "pyzipper>=0.4,<0.5", "charset-normalizer>=3.5.1,<4"]
 license = "MIT"
 
 [project.optional-dependencies]

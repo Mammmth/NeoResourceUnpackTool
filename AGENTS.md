@@ -21,6 +21,7 @@
 - 密码只尝试用户配置的列表；日志、错误、任务清单不写密码。已有成功密码仅在当前任务中优先尝试，不引入在线密码服务或自动生成密码。
 - 密码失败后允许补充密码并复用当前任务成功层。失败/取消保留缓存；不能把现有缓存清单描述为跨重启自动恢复能力。
 - 不覆盖目标已有文件，不自动执行解出的程序；保留路径、链接检查和取消能力。
+- 文件名代码页只作用于旧 ZIP 名称，优先保留明确的 Unicode 信息，不改变密码或内容。编码改变后必须重建解压缓存，不能复用以旧编码解出的层；自动检测有歧义时不得宣称已确定编码。
 
 ## 修改落点
 
@@ -29,6 +30,7 @@
 | 格式识别、载体偏移 | `src/neo_unpack/detect.py` |
 | 输入分组、缺卷 | `src/neo_unpack/volumes.py` |
 | ZIP 分卷 / 伪加密 | `src/neo_unpack/ziprestore.py`、`ziprepair.py` |
+| 文件名编码 / 自动检测 | `src/neo_unpack/filename_encoding.py`、`model.py` 的 `FILENAME_ENCODINGS` |
 | 引擎、密码编码、路径检查 | `src/neo_unpack/engine.py` |
 | 递归、缓存、结果整理 | `src/neo_unpack/workflow.py` |
 | 界面、配置、命令行 | `gui.py`、`config.py`、`model.py`、`cli.py` |

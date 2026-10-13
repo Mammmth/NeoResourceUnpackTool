@@ -59,3 +59,37 @@ def make_archive(tmp_path, engine):
         subprocess.run(args, cwd=source, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, check=True)
         return sorted(tmp_path.glob(f"{name}.{kind}.*")) if split else archive
     return make
+
+
+@pytest.fixture
+def make_legacy_zip(tmp_path):
+    def make(codec="cp932", files=None, password=None, name="legacy.zip", zip64=False, extra=b""):
+        import pyzipper
+        from pyzipper.zipfile_aes import AESZipInfo
+
+        base = AESZipInfo if password else zipfile.ZipInfo
+
+        class LegacyInfo(base):
+            def _encodeFilenameFlags(self):
+                return self.filename.encode(codec), self.flag_bits & ~0x800
+
+        path = tmp_path / name
+        kind = pyzipper.AESZipFile if password else zipfile.ZipFile
+        with kind(path, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+            archive.comment = b"keep archive comment"
+            if password:
+                archive.zipinfo_cls = LegacyInfo
+                archive.setencryption(pyzipper.WZ_AES)
+                archive.setpassword(password.encode("utf-8"))
+            for member, content in (files or {"日本語のテスト.txt": b"payload"}).items():
+                info = LegacyInfo(member)
+                info.extra = extra
+                info.compress_type = zipfile.ZIP_DEFLATED
+                info.comment = b"keep entry comment"
+                if zip64:
+                    with archive.open(info, "w", force_zip64=True) as writer:
+                        writer.write(content)
+                else:
+                    archive.writestr(info, content)
+        return path
+    return make

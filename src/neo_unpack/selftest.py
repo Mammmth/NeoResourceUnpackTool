@@ -39,7 +39,18 @@ def main(report_path: str):
             archive.writestr("content.txt", "UTF-8 password verified")
         encrypted_result = UnpackTask([encrypted], Settings(passwords=["wrong", "中文密码"])).run()
         assert (encrypted_result.output / "content.txt").read_text() == "UTF-8 password verified"
+        class LegacyName(zipfile.ZipInfo):
+            def _encodeFilenameFlags(self):
+                return self.filename.encode("cp932"), self.flag_bits & ~0x800
+
+        legacy = root / "legacy.zip"
+        with zipfile.ZipFile(legacy, "w") as archive:
+            archive.writestr(LegacyName("日本語のテスト.txt"), b"filename verified")
+        for encoding in ("cp932", "auto"):
+            name_result = UnpackTask([legacy], Settings(filename_encoding=encoding)).run()
+            assert (name_result.output / "日本語のテスト.txt").read_bytes() == b"filename verified"
         window.grab().save(str(report.with_suffix(".png")))
         report.write_text(json.dumps({"ok": True, "engine": str(find_engine()), "layers": result.layers,
-                                      "utf8_zip_password": True, "font_families": len(font_families)}, ensure_ascii=False), "utf-8")
+                                      "utf8_zip_password": True, "filename_encoding": True,
+                                      "font_families": len(font_families)}, ensure_ascii=False), "utf-8")
         window.close()

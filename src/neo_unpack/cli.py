@@ -5,7 +5,7 @@ import sys
 from pathlib import Path
 
 from .config import load_settings
-from .model import UnpackError
+from .model import FILENAME_ENCODINGS, UnpackError
 from .workflow import UnpackTask
 
 
@@ -19,10 +19,14 @@ def main() -> int:
     parser.add_argument("--one-layer", action="store_true")
     parser.add_argument("--keep-intermediates", action="store_true")
     parser.add_argument("--password-file", type=Path, help="每行一个密码的 UTF-8 TXT")
+    parser.add_argument("--filename-encoding", choices=FILENAME_ENCODINGS,
+                        help="旧 ZIP 文件名编码；default 跟随引擎，auto 自动检测，例如 cp932（日语）、gbk（简体中文）")
     args = parser.parse_args()
     task = None
     try:
         settings = load_settings()
+        if args.filename_encoding:
+            settings.filename_encoding = args.filename_encoding
         if args.output:
             settings.output_mode, settings.fixed_directory = "fixed_folder", str(args.output)
         if args.one_layer:
