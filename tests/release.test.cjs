@@ -194,7 +194,7 @@ test('VERSION selects a minor or major upgrade, then patches continue without ed
     state.releases.push(state.release);
     state.release = null;
   }
-  for (const invalid of ['v1.0.0', '01.0.0', '1.2', '1.0.0-rc.1', '']) {
+  for (const invalid of ['v1.0.0', '01.0.0', '1.2', '1.0.0-', '1.0.0-beta..1', '1.0.0-01', '1.0.0-beta.01', '1.0.0+build', '']) {
     fs.writeFileSync(path.join(cwd, 'VERSION'), invalid);
     assert.throws(() => prepareRelease({ ...options, sha: commit('invalid') }), /VERSION/);
   }
@@ -230,7 +230,7 @@ test('a tag left without a release is resumed; an ambiguous commit stops before 
   await publishRelease(args);
   assert.equal(state.release.tag_name, 'v0.1.4');
   state.tags.push({ name: 'v0.1.5', commit: { sha: plan.sha } });
-  await assert.rejects(publishRelease(args), /多个正式版本/);
+  await assert.rejects(publishRelease(args), /多个版本/);
   assert.equal(state.created, 1);
 });
 
@@ -247,4 +247,68 @@ test('rerunning an older published commit after newer releases does not allocate
   assert.equal(state.created, 0);
   assert.equal(state.published, 0);
   assert.equal(state.assets.length, 0);
+});
+
+
+test('explicit beta publishes as a prerelease without replacing Latest, and safely retries uploads', async t => {
+  const { options, commit, cwd } = fixture(t);
+  fs.writeFileSync(path.join(cwd, 'VERSION'), '1.0.0-beta');
+  const plan = prepareRelease({ ...options, sha: commit('beta') });
+  const { state, github } = fakeApi();
+  state.releases = [{ tag_name: 'v0.1.9', target_commitish: 'a'.repeat(40), draft: false, prerelease: false }];
+  const args = { github, repo: { owner: 'owner', repo: 'repo' }, plan };
+  state.failUpload = true;
+  await assert.rejects(publishRelease(args), /upload failed/);
+  assert.equal(state.release.tag_name, 'v1.0.0-beta');
+  assert.equal(state.release.prerelease, true);
+  assert.equal(state.release.draft, true);
+  state.failUpload = false;
+  await publishRelease(args);
+  assert.equal(state.release.tag_name, 'v1.0.0-beta');
+  assert.equal(state.release.prerelease, true);
+  assert.equal(state.release.draft, false);
+  assert.equal(state.release.make_latest, 'false');
+  assert.deepEqual(state.assets.map(a => a.name), plan.assets.map(a => a.name));
+  await publishRelease(args);
+  assert.equal(state.created, 1);
+  assert.equal(state.published, 1);
+});
+
+test('an explicit prerelease reserved by another commit fails instead of changing its tag', async t => {
+  const { options, commit, cwd } = fixture(t);
+  fs.writeFileSync(path.join(cwd, 'VERSION'), '1.0.0-beta');
+  const plan = prepareRelease({ ...options, sha: commit('new beta') });
+  for (const reservation of ['tag', 'draft', 'published']) {
+    const { state, github } = fakeApi();
+    if (reservation === 'tag') {
+      state.tags = [{ name: 'v1.0.0-beta', commit: { sha: 'a'.repeat(40) } }];
+    } else {
+      state.release = { id: 10, tag_name: 'v1.0.0-beta', target_commitish: 'a'.repeat(40),
+        prerelease: true, draft: reservation === 'draft' };
+    }
+    await assert.rejects(publishRelease({ github, repo: { owner: 'owner', repo: 'repo' }, plan }),
+      /其他提交|源码提交不匹配/);
+    assert.equal(state.created, 0);
+    assert.equal(state.published, 0);
+    assert.equal(state.assets.length, 0);
+  }
+});
+
+test('numbered prerelease and promotion to stable retain the stable patch policy', async t => {
+  const { options, commit, cwd } = fixture(t);
+  const { state, github } = fakeApi();
+  state.tags = [{ name: 'v1.0.0-beta', commit: { sha: 'a'.repeat(40) } }];
+  for (const [version, expected, prerelease] of [
+    ['1.0.0-beta.1', 'v1.0.0-beta.1', true], ['1.0.0-rc.1', 'v1.0.0-rc.1', true],
+    ['1.0.0', 'v1.0.0', false], ['1.0.0', 'v1.0.1', false],
+  ]) {
+    fs.writeFileSync(path.join(cwd, 'VERSION'), version);
+    const plan = prepareRelease({ ...options, sha: commit(version + expected) });
+    await publishRelease({ github, repo: { owner: 'owner', repo: 'repo' }, plan });
+    assert.equal(state.release.tag_name, expected);
+    assert.equal(state.release.prerelease, prerelease);
+    assert.equal(state.release.make_latest, prerelease ? 'false' : 'true');
+    state.releases.push(state.release);
+    state.release = null;
+  }
 });
