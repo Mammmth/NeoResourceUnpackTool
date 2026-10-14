@@ -134,7 +134,26 @@ GitHub Actions 的 `Desktop build` 工作流在 `dev` / `main` 推送和 PR 时�
 - `workflow.py`：还原、密码尝试、递归、缓存、结果整理。
 - `gui.py` / `config.py`：桌面界面与本机配置。
 
-本版本项目自身代码采用 [GPL-3.0-only（仅第 3 版）](LICENSE)，Copyright (c) 2026 Mammmth。
-此前已按 MIT 发布版本的授权不被撤销。内置组件保留各自许可证，见
-[第三方声明](THIRD_PARTY_NOTICES.md) 和 [对应源码与重新构建](SOURCE_CODE.md)。
-应用的“帮助 → 项目与第三方许可证”可查看声明、GPL 全文、源码获取办法和实际构建版本。
+## 许可证与第三方组件
+
+Copyright (c) 2026 Mammmth。项目自身代码采用 **GNU General Public License v3.0 only（GPL-3.0-only，仅第 3 版）**，完整条款见 [LICENSE](LICENSE)。可以依协议使用、修改和再分发；分发修改后的程序时须遵守 GPL 的相应源码提供及许可要求。本程序不提供任何担保。此前已按 MIT 发布版本的授权不被撤销。
+
+第三方组件保留各自的版权和许可证，不因本项目采用 GPL 而被重新授权：
+
+| 组件 | 许可证及说明 | 对应源码 |
+| --- | --- | --- |
+| 7-Zip 26.04 | 主要采用 LGPL-2.1-or-later，部分 BSD，RAR 解压部分另有 unRAR 限制；作为未修改的独立子进程运行 | [官方源码包](https://www.7-zip.org/a/7z2604-src.tar.xz) |
+| Qt / PySide6 Essentials / Shiboken6 6.12.0 | 本项目使用 LGPLv3 许可选项；保留用户修改、替换库和为调试这些修改而进行逆向工程的权利 | [Qt 6.12.0](https://download.qt.io/official_releases/qt/6.12/6.12.0/submodules/)、[PySide / Shiboken](https://code.qt.io/cgit/pyside/pyside-setup.git/) |
+| Python 运行时 | PSF 等许可，包含上游第三方版权声明 | [Python 源码](https://www.python.org/downloads/source/) |
+| OpenSSL 3 | Apache-2.0 | [OpenSSL 源码](https://openssl-library.org/source/) |
+| pyzipper 0.4.0 | MIT，继承的 Python 代码另有 PSF 声明 | [源码](https://github.com/danifus/pyzipper) |
+| pycryptodomex / PyCryptodome 3.24.1 | BSD 与公有领域部分 | [源码](https://github.com/Legrandin/pycryptodome) |
+| charset-normalizer 3.5.1 | MIT | [源码](https://github.com/jawah/charset_normalizer) |
+| PyInstaller 6.22.3 | GPLv2-or-later 带打包例外，部分 Apache-2.0；打包例外允许成品采用与依赖兼容的许可证 | [源码](https://github.com/pyinstaller/pyinstaller/tree/v6.22.3) |
+| pyinstaller-hooks-contrib 2026.8 | 按其 LICENSE 中的 GPL / Apache 条款划分 | [源码](https://github.com/pyinstaller/pyinstaller-hooks-contrib) |
+
+现有许可文件和组件声明见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)、[7-Zip 声明](third_party/7zip-License.txt)、[LGPLv3 全文](third_party/Qt-LGPL-3.0.txt)及 [GPLv3 全文](third_party/Qt-GPL-3.0.txt)。RAR 测试样本的 ISC 声明位于 [tests/fixtures/rar/LICENSE](tests/fixtures/rar/LICENSE)，样本不装入桌面应用。
+
+本项目源码位于[项目仓库](https://github.com/Mammmth/NeoResourceUnpackTool)，应使用与成品对应的提交；构建步骤见[开发与验证](docs/DEVELOPMENT.md)。修改或替换 Qt/PySide/Shiboken 后，可安装兼容的库和 wheel，再按该文档重新打包；Windows 单文件 EXE 中临时解出的库不适合直接作持久替换。Python/OpenSSL 的具体补丁版本依构建环境而定，第三方源码应与实际分发版本一致。
+
+再分发时须保留各组件要求的许可证、版权和归属声明，并满足对应源码提供义务；本节说明和上游项目链接不能代替完整许可材料及对应源码的实际提供。

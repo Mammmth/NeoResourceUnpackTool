@@ -1,8 +1,5 @@
 """A bundled-app smoke test: Qt + the bundled engine + a real unpack task."""
 import json
-import hashlib
-import platform
-import ssl
 import tempfile
 import time
 import zipfile
@@ -14,7 +11,7 @@ def main(report_path: str):
     from PySide6.QtGui import QFontDatabase
     from . import config
     from .engine import PasswordCheck, SevenZip, find_engine
-    from .gui import MainWindow, PasswordDialog, LicenseDialog, license_root, STYLE
+    from .gui import MainWindow, PasswordDialog, STYLE
     from .model import Settings
     from .workflow import UnpackTask
 
@@ -31,25 +28,6 @@ def main(report_path: str):
         window = MainWindow()
         window.show()
         app.processEvents()
-        legal = license_root()
-        hashes = json.loads((legal / "FILES.sha256.json").read_text("utf-8"))
-        assert {"LICENSE", "THIRD_PARTY_NOTICES.md", "SOURCE_CODE.md", "BUILD_INFO.json",
-                "third_party/Python-LICENSE.txt", "third_party/OpenSSL-LICENSE.txt",
-                "third_party/Python-NOTICES.txt",
-                "third_party/qt/qtbase-NOTICES.txt", "third_party/qt/qtsvg-NOTICES.txt",
-                "third_party/qt/pyside-NOTICES.txt"} <= hashes.keys()
-        for name, checksum in hashes.items():
-            assert hashlib.sha256((legal / name).read_bytes()).hexdigest() == checksum, name
-        build_info = json.loads((legal / "BUILD_INFO.json").read_text("utf-8"))
-        runtime = {item["name"]: item["version"] for item in build_info["runtime"]}
-        assert runtime["Python"] == platform.python_version()
-        assert ssl.OPENSSL_VERSION.startswith(f"OpenSSL {runtime['OpenSSL']} ")
-        assert build_info["application_license"] == "GPL-3.0-only"
-        licenses = LicenseDialog(window)
-        licenses.show()
-        app.processEvents()
-        licenses.grab().save(str(report.with_name(report.stem + "-licenses.png")))
-        licenses.close()
         source = root / "smoke.jpg"
         with zipfile.ZipFile(source, "w") as archive:
             archive.writestr("包装/最终内容.txt", "Neo bundled app smoke test")
@@ -131,7 +109,6 @@ def main(report_path: str):
                                       "utf8_zip_password": True, "filename_encoding": True,
                                       "password_screening": True,
                                       "password_frequency": True,
-                                      "license_materials": True,
                                       "gui_progress": True, "password_autosave": True,
                                       "delete_sources": True,
                                       "font_families": len(font_families)}, ensure_ascii=False), "utf-8")

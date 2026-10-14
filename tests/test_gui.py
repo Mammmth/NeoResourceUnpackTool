@@ -1,4 +1,3 @@
-import gc
 import os
 import time
 
@@ -15,10 +14,7 @@ def app():
     application = QApplication.instance() or QApplication([])
     application.setStyle("Fusion")
     application.setStyleSheet(STYLE)
-    yield application
-    # Collect closed windows on the GUI thread before another test starts a Worker.
-    gc.collect()
-    application.processEvents()
+    return application
 
 
 def test_window_runs_real_task(app, make_zip, monkeypatch, tmp_path):
@@ -55,21 +51,6 @@ def test_password_editor_preserves_spaces(app):
     assert dialog.passwords() == ["original", " has spaces "]
     assert " has spaces " in dialog.list.item(1).text()
     assert dialog.input.echoMode() == QLineEdit.EchoMode.Normal
-    dialog.close()
-
-
-def test_license_dialog_displays_project_and_source_terms(app):
-    from neo_unpack.gui import LicenseDialog, license_root
-    from PySide6.QtWidgets import QTabWidget
-
-    dialog = LicenseDialog()
-    tabs = dialog.findChild(QTabWidget)
-    assert tabs.count() == 4
-    assert "GPL-3.0-only" in tabs.widget(0).toPlainText()
-    assert "7-Zip" in tabs.widget(0).toPlainText()
-    assert "GNU GENERAL PUBLIC LICENSE" in tabs.widget(1).toPlainText()
-    assert "重新构建" in tabs.widget(2).toPlainText()
-    assert tabs.widget(0).document().baseUrl().toLocalFile().rstrip("/") == str(license_root())
     dialog.close()
 
 

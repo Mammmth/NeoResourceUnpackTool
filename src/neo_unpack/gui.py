@@ -10,55 +10,13 @@ from PySide6.QtWidgets import (
     QApplication, QButtonGroup, QComboBox, QDialog, QDialogButtonBox, QFileDialog,
     QFrame, QGridLayout, QHBoxLayout, QInputDialog, QLabel, QLineEdit, QListWidget,
     QListView, QListWidgetItem, QMainWindow, QMessageBox, QPlainTextEdit, QProgressBar,
-    QPushButton, QRadioButton, QScrollArea, QSizePolicy, QSplitter, QTabWidget,
-    QTextBrowser, QVBoxLayout, QWidget,
+    QPushButton, QRadioButton, QScrollArea, QSizePolicy, QSplitter, QVBoxLayout, QWidget,
 )
 
 from .config import load_settings, save_settings
 from .model import Cancelled, FILENAME_ENCODINGS, PasswordRequired, Settings, TaskProgress, UnpackError
 from .volumes import make_group
 from .workflow import UnpackTask
-
-
-def license_root() -> Path:
-    if hasattr(sys, "_MEIPASS"):
-        return Path(sys._MEIPASS) / "legal"
-    return Path(__file__).resolve().parents[2]
-
-
-class LicenseDialog(QDialog):
-    def __init__(self, parent=None):
-        super().__init__(parent)
-        self.setWindowTitle("项目与第三方许可证")
-        self.resize(820, 620)
-        root = license_root()
-        layout = QVBoxLayout(self)
-        tabs = QTabWidget()
-        layout.addWidget(tabs)
-        for title, filename in (("许可声明", "THIRD_PARTY_NOTICES.md"),
-                                ("项目 GPL-3.0 全文", "LICENSE"),
-                                ("源码与重新构建", "SOURCE_CODE.md"),
-                                ("构建版本", "BUILD_INFO.json")):
-            browser = QTextBrowser()
-            browser.setOpenExternalLinks(True)
-            browser.document().setBaseUrl(QUrl.fromLocalFile(str(root) + "/"))
-            path = root / filename
-            if path.is_file():
-                text = path.read_text("utf-8")
-                if filename.endswith(".md"):
-                    browser.setMarkdown(text)
-                else:
-                    browser.setPlainText(text)
-            else:
-                browser.setPlainText("源码运行时尚无构建版本记录。" if filename == "BUILD_INFO.json"
-                                     else f"许可文件缺失：{filename}")
-            tabs.addTab(browser, title)
-        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Close)
-        buttons.button(QDialogButtonBox.StandardButton.Close).setText("关闭")
-        folder = buttons.addButton("打开全部许可文件", QDialogButtonBox.ButtonRole.ActionRole)
-        folder.clicked.connect(lambda: QDesktopServices.openUrl(QUrl.fromLocalFile(str(root))))
-        buttons.rejected.connect(self.reject)
-        layout.addWidget(buttons)
 
 
 STYLE = """
@@ -329,7 +287,7 @@ class MainWindow(QMainWindow):
         super().__init__()
         self.setWindowTitle("Neo · 自动解压")
         help_menu = self.menuBar().addMenu("帮助")
-        help_menu.addAction("项目与第三方许可证", self.open_licenses)
+        help_menu.addAction("第三方组件与许可证", self.open_licenses)
         self.resize(1180, 800)
         self.setMinimumSize(1000, 700)
         self.paths: list[str] = []
@@ -654,7 +612,8 @@ class MainWindow(QMainWindow):
             QDesktopServices.openUrl(QUrl.fromLocalFile(str(self.task.session)))
 
     def open_licenses(self):
-        LicenseDialog(self).exec()
+        root = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parents[2]))
+        QDesktopServices.openUrl(QUrl.fromLocalFile(str(root / "third_party")))
 
     def closeEvent(self, event: QCloseEvent):
         if self.busy:

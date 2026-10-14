@@ -53,10 +53,6 @@ function prepareRelease({ sha, before, repository, serverUrl, runUrl, assetDir, 
   assets.push({ name: 'SHA256SUMS.txt', file: checksumFile });
   const body = `main 自动构建：Windows x64、macOS Apple Silicon、macOS Intel。\n\n` +
     `源码提交：\`${sha}\`；[构建与验证](${runUrl})。\n\n` +
-    `本项目自身代码采用 GPL-3.0-only；第三方组件保留各自许可。` +
-    `[对应提交完整源码 ZIP](${baseUrl}/archive/${sha}.zip)、` +
-    `[第三方声明](${baseUrl}/blob/${sha}/THIRD_PARTY_NOTICES.md)、` +
-    `[源码获取与重新构建](${baseUrl}/blob/${sha}/SOURCE_CODE.md)。\n\n` +
     `${description}\n\n` +
     `<details>\n<summary>本次推送的完整提交备注</summary>\n\n${notes || '本次推送没有新增提交。\n\n'}</details>\n\n` +
     `[完整变更](${comparison})\n\n` +

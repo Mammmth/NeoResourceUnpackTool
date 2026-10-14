@@ -44,9 +44,6 @@ test('merge notes include all new commit titles/bodies; tags and checksums are d
   assert.equal(fs.existsSync(path.join(cwd, 'injected')), false);
   assert.deepEqual(prepareRelease({ ...options, sha }), plan);
   assert.equal(plan.assets.length, 4);
-  assert.ok(plan.body.includes(`/archive/${sha}.zip`));
-  assert.ok(plan.body.includes(`/blob/${sha}/SOURCE_CODE.md`));
-  assert.ok(plan.body.includes('GPL-3.0-only'));
   const sum = crypto.createHash('sha256').update(PACKAGE_NAMES[0]).digest('hex');
   assert.ok(fs.readFileSync(plan.assets[3].file, 'utf8').includes(`${sum}  ${PACKAGE_NAMES[0]}`));
 });
