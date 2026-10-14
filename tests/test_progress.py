@@ -55,7 +55,7 @@ def test_real_recursive_progress_and_success_password_in_disk_log(make_archive):
     task = UnpackTask([outer], Settings(passwords=['wrong', 'outer-secret']), progress=events.append, log=messages.append)
     with pytest.raises(PasswordRequired):
         task.run()
-    success = '密码（outer-secret）验证成功，后续层将优先尝试。'
+    success = '密码（outer-secret）验证成功，累计成功 1 次。'
     assert success in messages
     assert success in (task.session / 'process.log').read_text('utf-8')
     assert 'outer-secret' not in (task.session / 'task.json').read_text('utf-8')

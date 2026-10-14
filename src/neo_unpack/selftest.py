@@ -92,12 +92,15 @@ def main(report_path: str):
         assert "密码（中文密码）验证成功" in window.log.toPlainText()
         assert not encrypted.exists() and not window.start.isEnabled()
         assert config.load_settings().delete_sources
+        assert config.load_settings().password_success_counts == {"中文密码": 1}
         window.grab().save(str(report.with_suffix(".png")))
         window.filename_encoding.showPopup()
         app.processEvents()
         window.filename_encoding.view().window().grab().save(str(report.with_name(report.stem + "-encoding.png")))
         window.filename_encoding.hidePopup()
-        passwords = PasswordDialog(window.settings.passwords, window, window.save_passwords)
+        passwords = PasswordDialog(window.settings.passwords, window, window.save_passwords,
+                                   success_counts=window.settings.password_success_counts)
+        assert "成功 1 次" in passwords.list.item(0).text()
         passwords.show()
         app.processEvents()
         passwords.grab().save(str(report.with_name(report.stem + "-passwords.png")))
@@ -105,6 +108,7 @@ def main(report_path: str):
         report.write_text(json.dumps({"ok": True, "engine": str(find_engine()), "layers": result.layers,
                                       "utf8_zip_password": True, "filename_encoding": True,
                                       "password_screening": True,
+                                      "password_frequency": True,
                                       "gui_progress": True, "password_autosave": True,
                                       "delete_sources": True,
                                       "font_families": len(font_families)}, ensure_ascii=False), "utf-8")

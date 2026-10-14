@@ -156,3 +156,52 @@ def test_radio_settings_and_progress_states(app, monkeypatch, tmp_path):
     assert window.extraction_progress.value() == 37
     assert "已停止" in window.extraction_status.text()
     window.close()
+
+
+def test_password_counts_display_edit_delete_and_reload(app, monkeypatch, tmp_path):
+    from neo_unpack.model import Settings
+    monkeypatch.setattr(config, "config_directory", lambda: tmp_path / "config")
+    config.save_settings(Settings(passwords=[" old ", "keep"], password_success_counts={" old ": 7, "keep": 4}))
+    window = MainWindow()
+    dialog = PasswordDialog(window.settings.passwords, window, window.save_passwords,
+                            success_counts=window.settings.password_success_counts)
+    assert "成功 7 次" in dialog.list.item(0).text() and dialog.passwords()[0] == " old "
+    monkeypatch.setattr(QInputDialog, "getText", lambda *args: ("new", True))
+    dialog.edit(dialog.list.item(0))
+    assert "成功 0 次" in dialog.list.item(0).text()
+    assert config.load_settings().password_success_counts == {"keep": 4}
+    dialog.list.item(0).setSelected(True)
+    dialog.remove()
+    dialog.add_password(" old ")
+    assert "成功 0 次" in dialog.list.item(1).text()
+    dialog.close()
+    window.close()
+    reopened = MainWindow()
+    assert reopened.read_settings().password_success_counts == {"keep": 4}
+    reopened.close()
+
+
+def test_worker_saves_counts_before_password_failure_and_resume(app, make_archive, monkeypatch, tmp_path):
+    from neo_unpack.model import Settings
+    monkeypatch.setattr(config, "config_directory", lambda: tmp_path / "config")
+    inner = make_archive("7z", "inner", headers=True, name="inner")
+    outer = make_archive("7z", "outer", headers=True, name="outer", files={"inner.7z": inner.read_bytes()})
+    config.save_settings(Settings(passwords=["outer"]))
+    window = MainWindow()
+    window.select_files([str(outer)])
+    window.start_task()
+    deadline = time.monotonic() + 15
+    while window.busy and time.monotonic() < deadline:
+        app.processEvents()
+        time.sleep(0.01)
+    assert not window.busy and window.retry
+    assert config.load_settings().password_success_counts == {"outer": 1}
+    assert window.save_passwords(["outer", "inner"])
+    window.start_task()
+    deadline = time.monotonic() + 15
+    while window.busy and time.monotonic() < deadline:
+        app.processEvents()
+        time.sleep(0.01)
+    assert not window.busy and window.output
+    assert config.load_settings().password_success_counts == {"outer": 1, "inner": 1}
+    window.close()

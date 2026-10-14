@@ -50,6 +50,7 @@ git diff --check
 | `test_delete_sources.py` | 成功后删除、默认保留、分卷范围、失败/取消、文件替换、删除失败与结果保留、旧配置及 CLI 覆盖 |
 | `test_progress.py` | 子进程退出前的进度、分块及回车/退格解析、取消、真实递归密码续接、成功密码日志、UTF-8 回退字节进度 |
 | `test_password_screening.py` | ZIP 加密头初筛不读取内容、错误密码跳过、误筛后原流程恢复、不确定结果/UTF-8 回退、完整性与路径检查、失败保留原件及取消 |
+| `test_password_frequency.py` | 次数配置兼容/校验、稳定降序、逐层重排、中间层/分支/分卷计数、失败后续接不重复、保存失败、CLI 覆盖隔离及临时密码 |
 | `test_build_scripts.py` | 旧 Windows 控制台编码下脚本帮助输出 |
 | `test_filename_encoding.py` | 手动代码页、自动检测歧义、Unicode 优先、加密回退、数字/PKZIP 分卷、ZIP64、原件保护、编码变更重建缓存 |
 
@@ -74,7 +75,7 @@ python scripts/smoke_build.py
 
 `dist/releases/` 是首次交付时手工汇总的本地产物目录，构建脚本不会自动维护它；可能不存在或过期。
 
-`smoke_build.py` 启动实际打包程序的 `--smoke-test` 入口，验证 Qt 字体、内置引擎、普通 ZIP、中文密码 ZIP、CP932 文件名及自动检测，以及密码初筛/误筛后兼容复试、密码自动保存、Worker 进度和成功密码日志，输出 `artifacts/bundled-smoke.json`、主窗口 `.png`、`-encoding.png` 和 `-passwords.png`。检查报告 `ok`、`utf8_zip_password`、`password_screening`、`filename_encoding`、`gui_progress`、`password_autosave`、`delete_sources`、`font_families`，并实际查看截图；这不替代拖放和密码编辑等人工交互验收。
+`smoke_build.py` 启动实际打包程序的 `--smoke-test` 入口，验证 Qt 字体、内置引擎、普通 ZIP、中文密码 ZIP、CP932 文件名及自动检测，以及密码初筛/误筛后兼容复试、密码自动保存/成功次数持久化与展示、Worker 进度和成功密码日志，输出 `artifacts/bundled-smoke.json`、主窗口 `.png`、`-encoding.png` 和 `-passwords.png`。检查报告 `ok`、`utf8_zip_password`、`password_screening`、`password_frequency`、`filename_encoding`、`gui_progress`、`password_autosave`、`delete_sources`、`font_families`，并实际查看截图；这不替代拖放和密码编辑等人工交互验收。
 
 macOS 可用原生平台插件补验成品（此入口属于打包程序，不能改为 `python -m neo_unpack --smoke-test`）：
 

@@ -114,7 +114,7 @@ def test_false_rejection_recovers_with_original_path(aes_zip, monkeypatch, later
     assert (result.output / "large.bin").stat().st_size == 4 * 1024 * 1024
     assert calls == ([None, "later", "correct"] if later_error else [None, "correct"])
     assert any("按原流程复试" in line for line in messages)
-    assert task.preferred_passwords == ["correct"]
+    assert task.settings.password_success_counts == {"correct": 1}
 
 
 def test_all_wrong_candidates_are_retried_and_failure_keeps_sources(aes_zip, monkeypatch):
@@ -126,7 +126,7 @@ def test_all_wrong_candidates_are_retried_and_failure_keeps_sources(aes_zip, mon
             task.run()
         assert calls == [None, "wrong-one", "wrong-two"]
         assert aes_zip.exists() and task.session.exists()
-        assert not task.extracted and not task.preferred_passwords
+        assert not task.extracted and not task.settings.password_success_counts
         assert not any("验证成功" in line for line in task._log_lines)
         assert "wrong-one" not in (task.session / "process.log").read_text("utf-8")
     finally:
@@ -151,7 +151,7 @@ def test_header_pass_does_not_publish_corrupt_data(aes_zip):
         with pytest.raises(UnpackError):
             task.run()
         assert aes_zip.exists() and not (aes_zip.parent / "encrypted").exists()
-        assert not task.preferred_passwords and not task.extracted
+        assert not task.settings.password_success_counts and not task.extracted
     finally:
         shutil.rmtree(task.session, ignore_errors=True)
 

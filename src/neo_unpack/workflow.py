@@ -66,13 +66,15 @@ class UnpackTask:
 
     def __init__(self, paths: list[Path], settings: Settings, *, engine: Path | None = None,
                  log: Log = lambda _: None, cancel: Event | None = None, cache_root: Path | None = None,
-                 progress: Callable[[TaskProgress], None] = lambda _: None):
+                 progress: Callable[[TaskProgress], None] = lambda _: None,
+                 on_password_success: Callable[[str], None] = lambda _: None):
         settings.validate()
         self.group = make_group(paths)
         self._output_name = self.group.name
         self.settings = settings
         self.log = log
         self.progress = progress
+        self.on_password_success = on_password_success
         self.current_archive = ""
         self.current_depth = 0
         self._stage = ""
@@ -84,7 +86,6 @@ class UnpackTask:
         self.prepared: dict[tuple[str, ...], tuple[Path, ArchiveInfo, Path]] = {}
         self.extracted: dict[tuple[str, ...], Path] = {}
         self.detected: dict[tuple[str, bool], ArchiveInfo | None] = {}
-        self.preferred_passwords: list[str] = []
         self.layers = 0
         self.archive_count = 0
         self._log_lines: list[str] = []
@@ -208,7 +209,11 @@ class UnpackTask:
             return self.extracted[key]
         archive, _, directory = self.prepare(group)
         destination = directory / "解压结果"
-        candidates = [None, *dict.fromkeys(p for p in [*self.preferred_passwords, *self.settings.passwords] if p)]
+        # Stable sorting keeps the configured order for equal counts. Rebuild
+        # for each archive so successes in earlier layers affect later ones.
+        passwords = list(dict.fromkeys(p for p in self.settings.passwords if p))
+        passwords.sort(key=lambda p: -self.settings.password_success_counts.get(p, 0))
+        candidates = [None, *passwords]
         needed_password = False
         rejected: list[tuple[int, str]] = []
         pending_error: UnpackError | None = None
@@ -250,8 +255,13 @@ class UnpackTask:
                 self.extracted[key] = destination
                 self.archive_count += 1
                 if password is not None:
-                    self.preferred_passwords = [password, *[p for p in self.preferred_passwords if p != password]]
-                    self.emit(f"密码（{password}）验证成功，后续层将优先尝试。")
+                    counts = self.settings.password_success_counts
+                    counts[password] = counts.get(password, 0) + 1
+                    self.emit(f"密码（{password}）验证成功，累计成功 {counts[password]} 次。")
+                    try:
+                        self.on_password_success(password)
+                    except (OSError, ValueError, UnpackError):
+                        self.emit("密码成功次数保存失败，本次任务内仍按最新次数排序；请检查配置目录权限。")
                 self.save_manifest("处理中")
                 return destination
         if destination.exists():
@@ -408,7 +418,8 @@ class UnpackTask:
         payload = {
             "status": status, "inputs": [str(p) for p in self.group.paths],
             "completed": {" | ".join(k): str(v) for k, v in self.extracted.items()},
-            "settings": {k: v for k, v in asdict(self.settings).items() if k != "passwords"},
+            "settings": {k: v for k, v in asdict(self.settings).items()
+                         if k not in {"passwords", "password_success_counts"}},
         }
         (self.session / "task.json").write_text(json.dumps(payload, ensure_ascii=False, indent=2), "utf-8")
         (self.session / "process.log").write_text("\n".join(self._log_lines), "utf-8")
