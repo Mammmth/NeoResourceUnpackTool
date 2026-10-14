@@ -10,14 +10,55 @@ const PACKAGE_NAMES = [
   'NeoResourceUnpackTool-macos-x86_64.zip',
 ];
 
+function parseVersion(tag) {
+  const match = /^v(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/.exec(tag);
+  return match ? match.slice(1).map(BigInt) : null;
+}
+
+function compareVersions(a, b) {
+  for (let i = 0; i < 3; i++) {
+    if (a[i] !== b[i]) return a[i] > b[i] ? 1 : -1;
+  }
+  return 0;
+}
+
+// Include drafts (which may not have a Git tag yet) when reserving version numbers.
+async function selectReleaseVersion({ github, repo, sha, minimumVersion }) {
+  const [tags, releases] = await Promise.all([
+    github.paginate(github.rest.repos.listTags, { ...repo, per_page: 100 }),
+    github.paginate(github.rest.repos.listReleases, { ...repo, per_page: 100 }),
+  ]);
+  const entries = [
+    ...tags.map(t => ({ tag: t.name, sha: t.commit.sha })),
+    ...releases.map(r => ({ tag: r.tag_name, sha: r.target_commitish })),
+  ].filter(e => parseVersion(e.tag));
+  const assigned = [...new Set(entries.filter(e => e.sha === sha).map(e => e.tag))];
+  if (assigned.length > 1) throw new Error('同一提交存在多个正式版本标签，请先核对');
+  let tag = assigned[0];
+  if (!tag) {
+    const minimum = parseVersion(`v${minimumVersion}`);
+    if (!minimum) throw new Error('VERSION 必须为不带 v 的三段版本号，例如 0.1.0');
+    const highest = entries.map(e => parseVersion(e.tag))
+      .sort((a, b) => compareVersions(b, a))[0];
+    const version = !highest || compareVersions(minimum, highest) > 0 ? minimum :
+      [highest[0], highest[1], highest[2] + 1n];
+    tag = `v${version.join('.')}`;
+  }
+  // Finishing an older draft must not move "Latest" back from a newer release.
+  const makeLatest = !releases.some(r => !r.draft && !r.prerelease &&
+    parseVersion(r.tag_name) && compareVersions(parseVersion(r.tag_name), parseVersion(tag)) > 0);
+  return { tag, makeLatest };
+}
+
 function prepareRelease({ sha, before, repository, serverUrl, runUrl, assetDir, cwd = process.cwd() }) {
   if (!/^[a-f0-9]{40}$/.test(sha) || !/^[a-f0-9]{40}$/.test(before)) {
     throw new Error('发布需要 push 事件的完整 before/head SHA');
   }
   const git = (...args) => execFileSync('git', args, { cwd, encoding: 'utf8' }).trimEnd();
-  const timestamp = Number(git('show', '-s', '--format=%ct', sha));
-  const date = new Date(timestamp * 1000).toISOString().replace(/[-:]/g, '').replace('.000Z', 'Z');
-  const tag = `v${date}-${sha.slice(0, 12)}`;
+  const minimumVersion = fs.readFileSync(path.join(cwd, 'VERSION'), 'utf8').trim();
+  if (!parseVersion(`v${minimumVersion}`)) {
+    throw new Error('VERSION 必须为不带 v 的三段版本号，例如 0.1.0');
+  }
   const initial = /^0+$/.test(before);
   // A branch's first push has no previous main tip; include its head commit only.
   const commits = initial ? [sha] : git('rev-list', '--reverse', `${before}..${sha}`).split('\n').filter(Boolean);
@@ -57,10 +98,12 @@ function prepareRelease({ sha, before, repository, serverUrl, runUrl, assetDir, 
     `<details>\n<summary>本次推送的完整提交备注</summary>\n\n${notes || '本次推送没有新增提交。\n\n'}</details>\n\n` +
     `[完整变更](${comparison})\n\n` +
     `下载对应平台的附件；SHA256SUMS.txt 用于核对文件完整性。当前构建未配置正式签名或 Apple 公证。\n`;
-  return { sha, tag, name: `Neo Resource Unpack Tool ${tag}`, body, assets };
+  return { sha, minimumVersion, body, assets };
 }
 
 async function publishRelease({ github, repo, plan }) {
+  const { tag, makeLatest } = await selectReleaseVersion({ github, repo, ...plan });
+  plan = { ...plan, tag, name: `Neo Resource Unpack Tool ${tag}` };
   const api = github.rest.repos;
   const optional = async operation => {
     try { return (await operation()).data; }
@@ -89,7 +132,7 @@ async function publishRelease({ github, repo, plan }) {
       data: fs.readFileSync(asset.file), headers: { 'content-type': 'application/octet-stream' } });
   }
   return (await api.updateRelease({ ...repo, release_id: release.id,
-    name: plan.name, body: plan.body, draft: false, make_latest: 'legacy' })).data;
+    name: plan.name, body: plan.body, draft: false, make_latest: makeLatest ? 'true' : 'false' })).data;
 }
 
 module.exports = { PACKAGE_NAMES, prepareRelease, publishRelease };

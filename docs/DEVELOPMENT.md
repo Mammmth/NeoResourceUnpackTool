@@ -111,13 +111,16 @@ codesign --verify --deep --strict dist/NeoResourceUnpackTool.app
 
 [scripts/release.cjs](../scripts/release.cjs) 将 head（通常为合并提交）的标题和正文作为 Release 主描述，按 Markdown 展示；从完整 Git 历史读取 `before..head` 新增提交的标题及正文，放入折叠区；首次建立分支（before 全零）只取 head。长备注会截断并提供完整变更链接。提交备注作为数据处理，不插入 shell 命令或 Actions 表达式。
 
-- 标签格式：`vYYYYMMDDTHHMMSSZ-<12位提交号>`，采用提交的 UTC 时间，重跑保持一致；应用内版本号不随自动标签改动。
+- 标签格式：`vMAJOR.MINOR.PATCH`，初始 `v0.1.0`。脚本分页读取远端 Tag 和 Release（含草稿），忽略历史时间戳及预发布后缀，取最高正式版本递增 PATCH；先查找当前提交是否已有版本，重跑优先复用，Tag 存在但 Release 尚未创建时也可继续。
+- 手动升级：修改根目录 [VERSION](../VERSION) 为 `0.2.0`、`1.0.0` 等不带 `v` 的三段版本号并合入 `main`。该文件是最低目标版本：高于远端已占用版本时采用它，否则自动递增最高版本的 PATCH，不会降级或覆盖旧标签。文件保留该值即可，不必每次发布提交新版本号；Python 包元数据不自动改写。
+- `release` 作业通过 `main-release` 并发组串行发布，`queue: max` 保留最多 100 个待发布作业，避免默认队列替换等待项。分配顺序按进入发布队列而非推送时间；构建失败不会运行该作业。上传失败留下带版本号的草稿，重跑复用；其他提交跳过被草稿占用的版本，可能出现尚未公开的版本空位。
+- 旧草稿恢复后不把 Latest 从较新的正式版本退回；同名标签指向其他提交、同名 Release 源码不匹配、同一提交有多个正式版本标签时停止，人工核对后再重跑。
 - 附件：`NeoResourceUnpackTool.exe`、`NeoResourceUnpackTool-macos-arm64.zip`、`NeoResourceUnpackTool-macos-x86_64.zip`、`SHA256SUMS.txt`。发布前核对三个包均存在且非空，校验文件针对内部成品，不是 Actions 外层 ZIP。
 - 先创建草稿、上传全部附件、再公开。上传失败不公开；重跑同一次 Actions 可替换草稿附件并继续。已公开版本直接返回，不改写附件；同名标签或 Release 指向其他提交时停止。
 - 工作流默认只读权限，仅发布作业获得 `contents: write`，使用内置 `GITHUB_TOKEN`，无需另设个人令牌。仓库/组织策略或标签规则若拒绝写入，会在发布作业报错；缺失历史也会停止备注生成。
-- `release-tests` 在 Ubuntu / Node.js 24 上运行，可本地执行 `node --test tests/release.test.cjs`。测试覆盖真实临时 Git 合并备注、附件缺失/空文件、标签稳定性、校验值、长备注、上传中断恢复、已发布重跑和权限/标签冲突；通过模拟 API 验证发布流程，不创建真实 Release。
+- `release-tests` 在 Ubuntu / Node.js 24 上运行，可本地执行 `node --test tests/release.test.cjs`。测试覆盖真实临时 Git 合并备注、附件缺失/空文件、校验值、长备注、首次版本/补丁递增、手动次版本/主版本升级、草稿占号与恢复、Latest 保护、已发布重跑和权限/标签冲突；通过模拟 API 验证发布流程，不创建真实 Release。
 
-失败时在 Actions 中重跑失败作业。真实 GitHub 发布及最终下载仍需首次 `main` 推送验证；签名、公证和最低系统版本验收仍沿用现有限制。
+失败时在 Actions 中重跑失败作业。语义版本新规则的真实发布仍需合入后的首次 `main` 推送验证；签名、公证和最低系统版本验收仍沿用现有限制。
 
 交付前核对构建对应提交、每个平台结果及成品验证，下载时校验 GitHub 提供的 artifact digest。Actions 下载的外层 ZIP 内，Windows 是 EXE，Mac 是包含 APP 的第二层 ZIP。不能把外层 ZIP 的散列误写成内部成品散列。
 

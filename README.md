@@ -121,7 +121,9 @@ python scripts/smoke_build.py
 
 macOS 输出 `dist/NeoResourceUnpackTool.app` 及对应架构 ZIP；Windows 输出单文件 `dist/NeoResourceUnpackTool.exe`。必须在对应系统构建。打包测试会实际启动 Qt、定位内置引擎，并解压测试包；截图和结果保存在 `artifacts/`。
 
-GitHub Actions 的 `Desktop build` 工作流在 `dev` / `main` 推送和 PR 时分别测试、构建 Windows x64、macOS Apple Silicon、macOS Intel，并上传可下载产物；也支持手动触发。`main` 每次直接提交或合并触发的推送，在全部测试和成品验证通过后自动创建 [Release](https://github.com/Mammmth/NeoResourceUnpackTool/releases)，附上本次推送的提交备注、三平台成品及 SHA-256 校验文件。`dev`、PR 和手动构建不发布 Release。自动标签采用提交 UTC 时间和短提交号，具体结果以 Actions 为准。
+GitHub Actions 的 `Desktop build` 工作流在 `dev` / `main` 推送和 PR 时分别测试、构建 Windows x64、macOS Apple Silicon、macOS Intel，并上传可下载产物；也支持手动触发。`main` 每次直接提交或合并触发的推送，在全部测试和成品验证通过后自动创建 [Release](https://github.com/Mammmth/NeoResourceUnpackTool/releases)，附上本次推送的提交备注、三平台成品及 SHA-256 校验文件。`dev`、PR 和手动构建不发布 Release。自动标签采用 `v主版本.次版本.补丁号`：首次为 `v0.1.0`，以后默认递增补丁号，如 `v0.1.1`、`v0.1.2`；同一提交重跑复用版本，历史时间戳标签保留。具体结果以 Actions 为准。
+
+需要手动升级次版本或主版本时，将仓库根目录的 [VERSION](VERSION) 改为目标版本（例如 `0.2.0` 或 `1.0.0`，不带 `v`），随代码合入 `main`。目标高于已占用的正式版本时使用该值，后续继续自动递增补丁号；平时不用改这个文件。这里控制 Release / Tag，不自动改写 Python 包元数据中的版本号。
 
 测试包含真实 RAR3/RAR5、加密与分卷样本、真实 PKZIP 分卷、动态生成的加密 ZIP/7z、隐写与伪加密组合、递归停止、密码续接、文件重名、原文件保护及桌面实际任务。测试用 RAR 来源与许可证在 `tests/fixtures/rar/`。
 
