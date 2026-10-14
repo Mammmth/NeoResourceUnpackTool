@@ -288,13 +288,16 @@ class UnpackTask:
             else:
                 break
         items = children(root)
+        # Keep the actual content folder's full name (including dots). A
+        # wrapper around another archive does not name that archive's results.
+        output_name = root.name if root != extracted else group.name
         if self.settings.depth == "one":
             finals.extend((p, group.name) for p in items)
-            return group.name
+            return output_name
         # Directories alongside content are part of that content; don't flatten them.
         if any(p.is_dir() for p in items):
             finals.extend((p, group.name) for p in items)
-            return group.name
+            return output_name
         texts = [p for p in items if p.suffix.casefold() == ".txt"]
         nontexts = [p for p in items if p.suffix.casefold() != ".txt"]
         for path in texts[:]:
@@ -306,7 +309,7 @@ class UnpackTask:
             nontexts, texts = items, []
         if not nontexts:
             finals.extend((p, group.name) for p in texts)
-            return group.name
+            return output_name
         for path in nontexts:
             if is_volume_name(path):
                 continue
@@ -315,19 +318,19 @@ class UnpackTask:
             info = self.info(VolumeGroup((path,), name=path.stem))
             if info is None or content_container(path, info):
                 finals.extend((p, group.name) for p in items)
-                return group.name
+                return output_name
         try:
             groups = discover_groups(nontexts)
             archive_infos = [self.info(candidate) for candidate in groups]
         except InvalidInput:
             finals.extend((p, group.name) for p in items)
-            return group.name
+            return output_name
         if any(info is None for info in archive_infos):
             finals.extend((p, group.name) for p in items)
-            return group.name
+            return output_name
         finals.extend((p, group.name) for p in texts)
         names = [self._walk(candidate, depth + 1, finals) for candidate in groups]
-        return names[0] if len(names) == 1 else group.name
+        return names[0] if len(names) == 1 else output_name
 
     def _copy_final(self, source: Path, target: Path) -> None:
         self.check_cancel()
