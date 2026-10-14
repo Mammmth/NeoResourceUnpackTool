@@ -12,7 +12,7 @@ from threading import Event
 from typing import Callable
 
 from .detect import OffsetReader, detect
-from .engine import SevenZip
+from .engine import PasswordCheck, SevenZip
 from .filename_encoding import normalize_zip_names
 from .model import (
     ArchiveInfo, Cancelled, InvalidInput, Log, PasswordRequired, Result, Settings,
@@ -105,7 +105,7 @@ class UnpackTask:
         self.progress(TaskProgress(stage, self.current_archive, self.current_depth, percent))
 
     def extraction_progress(self, percent: int | None) -> None:
-        self.report_progress("检查压缩包" if percent is None else "解压", percent)
+        self.report_progress("检查压缩包" if percent is None else "正在解压", percent)
 
     def check_cancel(self) -> None:
         if self.cancel.is_set():
@@ -210,26 +210,54 @@ class UnpackTask:
         destination = directory / "解压结果"
         candidates = [None, *dict.fromkeys(p for p in [*self.preferred_passwords, *self.settings.passwords] if p)]
         needed_password = False
-        for index, password in enumerate(candidates):
-            self.check_cancel()
-            if destination.exists():
-                shutil.rmtree(destination)
-            if password is not None:
-                self.emit(f"正在尝试密码 {index}/{len(candidates) - 1}…")
-            try:
-                self.engine.extract(archive, destination, password)
-            except PasswordRequired:
-                needed_password = True
-                continue
-            self.extracted[key] = destination
-            self.archive_count += 1
-            if password is not None:
-                self.preferred_passwords = [password, *[p for p in self.preferred_passwords if p != password]]
-                self.emit(f"密码（{password}）验证成功，后续层将优先尝试。")
-            self.save_manifest("处理中")
-            return destination
+        rejected: list[tuple[int, str]] = []
+        pending_error: UnpackError | None = None
+        for compatibility in (False, True):
+            attempts = rejected if compatibility else list(enumerate(candidates))
+            if compatibility and attempts:
+                self.emit("快速尝试未成功，正在按原流程复试初筛未匹配的密码…")
+            for index, password in attempts:
+                self.check_cancel()
+                if password is not None:
+                    self.report_progress("兼容复试密码" if compatibility else "检查密码")
+                    self.emit(f"{'兼容复试' if compatibility else '正在检查'}密码 {index}/{len(candidates) - 1}…")
+                    if not compatibility:
+                        check = self.engine.check_password(archive, password)
+                        if check is PasswordCheck.MISMATCH:
+                            rejected.append((index, password))
+                            needed_password = True
+                            continue
+                        if check is PasswordCheck.POSSIBLE:
+                            self.emit("密码初筛通过，接下来解压并完整校验。")
+                if destination.exists():
+                    shutil.rmtree(destination)
+                try:
+                    self.engine.extract(archive, destination, password)
+                except Cancelled:
+                    raise
+                except PasswordRequired:
+                    needed_password = True
+                    continue
+                except UnpackError as error:
+                    if not compatibility and not rejected:
+                        raise
+                    # An uncertain candidate must not prevent a previously
+                    # filtered correct password from reaching the old path.
+                    pending_error = pending_error or error
+                    if not compatibility:
+                        break
+                    continue
+                self.extracted[key] = destination
+                self.archive_count += 1
+                if password is not None:
+                    self.preferred_passwords = [password, *[p for p in self.preferred_passwords if p != password]]
+                    self.emit(f"密码（{password}）验证成功，后续层将优先尝试。")
+                self.save_manifest("处理中")
+                return destination
         if destination.exists():
             shutil.rmtree(destination)
+        if pending_error is not None:
+            raise pending_error
         if needed_password:
             message = "当前密码库未能解开此压缩包。请补充正确密码后继续；加密数据损坏也可能导致相同错误。"
             if len(candidates) == 1:

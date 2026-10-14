@@ -542,7 +542,7 @@ class MainWindow(QMainWindow):
         if update.percent is not None:
             self.extraction_progress.setValue(update.percent)
             self.extraction_status.setText(f"当前包解压：{update.percent}%")
-        elif update.stage in {"准备处理", "检查压缩包"}:
+        elif update.stage in {"准备处理", "检查压缩包", "检查密码", "兼容复试密码"}:
             self.extraction_progress.setValue(0)
             self.extraction_status.setText("解压进度：等待解压")
         else:

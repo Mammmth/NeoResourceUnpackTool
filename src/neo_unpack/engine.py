@@ -3,16 +3,24 @@ from __future__ import annotations
 import os
 import re
 import shutil
+import struct
 import subprocess
 import sys
 import tempfile
 import uuid
+from enum import Enum, auto
 from pathlib import Path, PurePosixPath
 from threading import Event
 from typing import Callable
 
 from .model import Cancelled, MissingVolume, PasswordRequired, UnpackError, UnsafeArchive
 from .filename_encoding import zip_member_name
+
+
+class PasswordCheck(Enum):
+    POSSIBLE = auto()  # Header check only; never proof of successful extraction.
+    MISMATCH = auto()
+    UNKNOWN = auto()
 
 
 def find_engine() -> Path:
@@ -53,6 +61,43 @@ class SevenZip:
         # process. An explicit throwaway probe keeps encrypted-header detection
         # non-interactive; actual passwords still come only from the user's list.
         self._probe = "neo-probe-" + uuid.uuid4().hex
+
+    def check_password(self, archive: Path, password: str) -> PasswordCheck:
+        """Read one ZIP encryption header, without reading/decompressing payload.
+
+        Other formats and non-ASCII passwords keep the original engine path:
+        Windows ANSI and UTF-8 password bytes are not necessarily equivalent.
+        The workflow must retry MISMATCH candidates without this check if no
+        candidate succeeds, since this is only an optional optimization.
+        """
+        if self.cancel.is_set():
+            raise Cancelled("已取消，任务缓存已保留。")
+        if archive.suffix.lower() != ".zip" or not password.isascii():
+            return PasswordCheck.UNKNOWN
+        import pyzipper
+
+        result = PasswordCheck.UNKNOWN
+        try:
+            with pyzipper.AESZipFile(archive) as source:
+                member = next((m for m in source.infolist() if m.flag_bits & 1 and not m.is_dir()), None)
+                if member is not None and not member.flag_bits & (32 | 64):
+                    if member.compress_type in {0, 8, 12, 14}:
+                        if self.cancel.is_set():
+                            raise Cancelled("已取消，任务缓存已保留。")
+                        # open() validates the encryption header; read() would
+                        # start payload decompression and must not be used here.
+                        with source.open(member, pwd=password.encode("ascii")):
+                            result = PasswordCheck.POSSIBLE
+        except RuntimeError as error:
+            if str(error).startswith("Bad password for file "):
+                result = PasswordCheck.MISMATCH
+        except (OSError, ValueError, NotImplementedError, EOFError, IndexError,
+                KeyError, struct.error, pyzipper.BadZipFile):
+            # Unsupported or damaged metadata is not a password verdict.
+            pass
+        if self.cancel.is_set():
+            raise Cancelled("已取消，任务缓存已保留。")
+        return result
 
     def run(self, arguments: list[str], password: str | None = None, *, track_progress=False) -> tuple[int, str]:
         if self.cancel.is_set():

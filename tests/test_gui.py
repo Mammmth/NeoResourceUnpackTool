@@ -143,12 +143,15 @@ def test_radio_settings_and_progress_states(app, monkeypatch, tmp_path):
     window.retention.group.button(1).click()
     assert window.read_settings().depth == "one"
     assert window.read_settings().keep_intermediates
-    window.on_progress(TaskProgress("解压", "inner.7z", 2, 63))
+    window.on_progress(TaskProgress("正在解压", "inner.7z", 2, 63))
     assert window.extraction_progress.value() == 63
     assert "第 2 层" in window.status.text() and "inner.7z" in window.status.text()
-    window.on_progress(TaskProgress("检查压缩包", "inner.7z", 2))
-    assert window.extraction_progress.value() == 0
-    window.on_progress(TaskProgress("解压", "inner.7z", 2, 37))
+    for stage in ("检查压缩包", "检查密码", "兼容复试密码"):
+        window.on_progress(TaskProgress("正在解压", "inner.7z", 2, 100))
+        window.on_progress(TaskProgress(stage, "inner.7z", 2))
+        assert window.extraction_progress.value() == 0
+        assert window.extraction_status.text() == "解压进度：等待解压"
+    window.on_progress(TaskProgress("正在解压", "inner.7z", 2, 37))
     window.on_failed("cancel", "已取消")
     assert window.extraction_progress.value() == 37
     assert "已停止" in window.extraction_status.text()
