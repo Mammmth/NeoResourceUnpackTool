@@ -137,16 +137,17 @@ class ChoiceGroup(QWidget):
 
 
 class PasswordDialog(QDialog):
-    def __init__(self, passwords: list[str], parent=None, on_change=None):
+    def __init__(self, passwords: list[str], parent=None, on_change=None, success_counts=None):
         super().__init__(parent)
         self.on_change = on_change
+        self.success_counts = dict(success_counts or {})
         self.setWindowTitle("管理密码")
         self.resize(560, 480)
         layout = QVBoxLayout(self)
         layout.setContentsMargins(24, 24, 24, 24)
         layout.setSpacing(14)
         layout.addWidget(label("常用密码", "section"))
-        layout.addWidget(label("按顺序尝试，成功后在当前任务中优先使用。", "muted", True))
+        layout.addWidget(label("按成功次数从高到低尝试，同次数按列表顺序。每成功解开一个压缩包计 1 次，中间层也计入。", "muted", True))
         self.list = QListWidget()
         self.list.setSelectionMode(QListWidget.SelectionMode.ExtendedSelection)
         self.list.itemDoubleClicked.connect(self.edit)
@@ -187,6 +188,8 @@ class PasswordDialog(QDialog):
         return [self.list.item(i).data(Qt.ItemDataRole.UserRole) for i in range(self.list.count())]
 
     def commit(self):
+        current = set(self.passwords())
+        self.success_counts = {p: count for p, count in self.success_counts.items() if p in current}
         self.refresh()
         if self.on_change:
             saved = self.on_change(self.passwords())
@@ -208,7 +211,8 @@ class PasswordDialog(QDialog):
     def refresh(self):
         for index in range(self.list.count()):
             item = self.list.item(index)
-            item.setText(f"{index + 1:02d}   " + item.data(Qt.ItemDataRole.UserRole))
+            password = item.data(Qt.ItemDataRole.UserRole)
+            item.setText(f"{index + 1:02d}   {password}    （成功 {self.success_counts.get(password, 0)} 次）")
 
     def edit(self, item):
         value, okay = QInputDialog.getText(self, "编辑密码", "密码", QLineEdit.EchoMode.Normal, item.data(Qt.ItemDataRole.UserRole))
@@ -251,14 +255,20 @@ class Worker(QThread):
         self.paths, self.settings, self.task = paths, settings, task
         self.cancel = task.cancel if task else Event()
 
+    def save_password_success(self, password):
+        # Runs in the worker, after the shared settings count was incremented.
+        save_settings(self.settings)
+
     def run(self):
         try:
             if self.task is None:
-                self.task = UnpackTask([Path(p) for p in self.paths], self.settings, cancel=self.cancel, log=self.message.emit, progress=self.progress.emit)
+                self.task = UnpackTask([Path(p) for p in self.paths], self.settings, cancel=self.cancel, log=self.message.emit, progress=self.progress.emit,
+                                       on_password_success=self.save_password_success)
             else:
                 self.task.settings = self.settings
                 self.task.log = self.message.emit
                 self.task.progress = self.progress.emit
+                self.task.on_password_success = self.save_password_success
             self.ready.emit(self.task)
             self.completed.emit(self.task.run())
         except PasswordRequired as error:
@@ -443,11 +453,16 @@ class MainWindow(QMainWindow):
             self.directory.setText(directory)
 
     def manage_passwords(self):
-        dialog = PasswordDialog(self.settings.passwords, self, self.save_passwords)
+        dialog = PasswordDialog(self.settings.passwords, self, self.save_passwords,
+                                success_counts=self.settings.password_success_counts)
         dialog.exec()
 
     def save_passwords(self, passwords):
         self.settings.passwords = list(passwords)
+        current = set(passwords)
+        self.settings.password_success_counts = {
+            p: count for p, count in self.settings.password_success_counts.items() if p in current
+        }
         self.update_password_count()
         try:
             save_settings(self.settings)
@@ -461,6 +476,7 @@ class MainWindow(QMainWindow):
             output_mode=self.mode.value(), fixed_directory=self.directory.text(),
             depth=self.depth.value(), keep_intermediates=self.retention.value(),
             passwords=list(self.settings.passwords),
+            password_success_counts=dict(self.settings.password_success_counts),
             filename_encoding=self.filename_encoding.currentData(),
             delete_sources=self.delete_sources.value(),
         )
@@ -542,7 +558,7 @@ class MainWindow(QMainWindow):
         if update.percent is not None:
             self.extraction_progress.setValue(update.percent)
             self.extraction_status.setText(f"当前包解压：{update.percent}%")
-        elif update.stage in {"准备处理", "检查压缩包"}:
+        elif update.stage in {"准备处理", "检查压缩包", "检查密码", "兼容复试密码"}:
             self.extraction_progress.setValue(0)
             self.extraction_status.setText("解压进度：等待解压")
         else:

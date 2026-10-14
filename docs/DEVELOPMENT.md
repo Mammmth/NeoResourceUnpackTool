@@ -44,11 +44,14 @@ git diff --check
 | 测试文件 | 主要覆盖 |
 | --- | --- |
 | `test_core.py` | 二进制识别、扫描边界、ZIP 伪加密、密码/UTF-8、续接、递归、冲突、四种输出、取消、路径保护 |
+| `test_directory_recursion.py` | 并列目录递归、整树预检、分组与冲突、TXT/空目录、内部包装、分卷隔离、密码/编码续接、取消及发布回滚 |
 | `test_rar.py` | 真实 RAR3/RAR5、固实、内容/文件名加密、新旧分卷、末卷缺失 |
 | `test_zip_split.py` | 真实 `.z01 + .zip`，含伪加密组合 |
 | `test_gui.py` | 窗口运行真实任务、任务创建失败后的状态、密码明文和空格、增删改/导入即时保存、保存失败、单选配置与进度状态 |
 | `test_delete_sources.py` | 成功后删除、默认保留、分卷范围、失败/取消、文件替换、删除失败与结果保留、旧配置及 CLI 覆盖 |
 | `test_progress.py` | 子进程退出前的进度、分块及回车/退格解析、取消、真实递归密码续接、成功密码日志、UTF-8 回退字节进度 |
+| `test_password_screening.py` | ZIP 加密头初筛不读取内容、错误密码跳过、误筛后原流程恢复、不确定结果/UTF-8 回退、完整性与路径检查、失败保留原件及取消 |
+| `test_password_frequency.py` | 次数配置兼容/校验、稳定降序、逐层重排、中间层/分支/分卷计数、失败后续接不重复、保存失败、CLI 覆盖隔离及临时密码 |
 | `test_build_scripts.py` | 旧 Windows 控制台编码下脚本帮助输出 |
 | `test_filename_encoding.py` | 手动代码页、自动检测歧义、Unicode 优先、加密回退、数字/PKZIP 分卷、ZIP64、原件保护、编码变更重建缓存 |
 
@@ -73,7 +76,7 @@ python scripts/smoke_build.py
 
 `dist/releases/` 是首次交付时手工汇总的本地产物目录，构建脚本不会自动维护它；可能不存在或过期。
 
-`smoke_build.py` 启动实际打包程序的 `--smoke-test` 入口，验证 Qt 字体、内置引擎、普通 ZIP、中文密码 ZIP、CP932 文件名及自动检测，以及密码自动保存、Worker 进度和成功密码日志，输出 `artifacts/bundled-smoke.json`、主窗口 `.png`、`-encoding.png` 和 `-passwords.png`。检查报告 `ok`、`utf8_zip_password`、`filename_encoding`、`gui_progress`、`password_autosave`、`delete_sources`、`font_families`，并实际查看截图；这不替代拖放和密码编辑等人工交互验收。
+`smoke_build.py` 启动实际打包程序的 `--smoke-test` 入口，验证 Qt 字体、内置引擎、普通 ZIP、中文密码 ZIP、CP932 文件名及自动检测，以及密码初筛/误筛后兼容复试、密码自动保存/成功次数持久化与展示、Worker 进度和成功密码日志，输出 `artifacts/bundled-smoke.json`、主窗口 `.png`、`-encoding.png` 和 `-passwords.png`。检查报告 `ok`、`utf8_zip_password`、`password_screening`、`password_frequency`、`filename_encoding`、`gui_progress`、`password_autosave`、`delete_sources`、`font_families`，并实际查看截图；这不替代拖放和密码编辑等人工交互验收。
 
 macOS 可用原生平台插件补验成品（此入口属于打包程序，不能改为 `python -m neo_unpack --smoke-test`）：
 
@@ -109,13 +112,17 @@ codesign --verify --deep --strict dist/NeoResourceUnpackTool.app
 
 [scripts/release.cjs](../scripts/release.cjs) 将 head（通常为合并提交）的标题和正文作为 Release 主描述，按 Markdown 展示；从完整 Git 历史读取 `before..head` 新增提交的标题及正文，放入折叠区；首次建立分支（before 全零）只取 head。长备注会截断并提供完整变更链接。提交备注作为数据处理，不插入 shell 命令或 Actions 表达式。
 
-- 标签格式：`vYYYYMMDDTHHMMSSZ-<12位提交号>`，采用提交的 UTC 时间，重跑保持一致；应用内版本号不随自动标签改动。
+- 标签格式：`vMAJOR.MINOR.PATCH`，初始 `v0.1.0`。脚本分页读取远端 Tag 和 Release（含草稿），忽略历史时间戳及预发布后缀，取最高正式版本递增 PATCH；先查找当前提交是否已有版本，重跑优先复用，Tag 存在但 Release 尚未创建时也可继续。
+- 手动升级：修改根目录 [VERSION](../VERSION) 为 `0.2.0`、`1.0.0` 等不带 `v` 的三段版本号并合入 `main`。该文件是最低目标版本：高于远端已占用版本时采用它，否则自动递增最高版本的 PATCH，不会降级或覆盖旧标签。文件保留该值即可，不必每次发布提交新版本号；Python 包元数据不自动改写。
+- 预发布：`VERSION` 可设为 `1.0.0-beta`、`1.0.0-beta.1` 或 `1.0.0-rc.1`。这时版本为精确目标，不自动递增；创建及公开 Release 均设置 `prerelease=true`、`make_latest=false`。下一次新提交发布前须更新预发布号，已被其他提交占用的标签/草稿/公开 Release 会触发冲突保护。改回 `1.0.0` 后，预发布号不参与正式补丁递增。
+- `release` 作业通过 `main-release` 并发组串行发布，`queue: max` 保留最多 100 个待发布作业，避免默认队列替换等待项。分配顺序按进入发布队列而非推送时间；构建失败不会运行该作业。上传失败留下带版本号的草稿，重跑复用；其他提交跳过被草稿占用的版本，可能出现尚未公开的版本空位。
+- 旧草稿恢复后不把 Latest 从较新的正式版本退回；同名标签指向其他提交、同名 Release 源码不匹配、同一提交有多个版本标签时停止，人工核对后再重跑。
 - 附件：`NeoResourceUnpackTool.exe`、`NeoResourceUnpackTool-macos-arm64.zip`、`NeoResourceUnpackTool-macos-x86_64.zip`、`SHA256SUMS.txt`。发布前核对三个包均存在且非空，校验文件针对内部成品，不是 Actions 外层 ZIP。
 - 先创建草稿、上传全部附件、再公开。上传失败不公开；重跑同一次 Actions 可替换草稿附件并继续。已公开版本直接返回，不改写附件；同名标签或 Release 指向其他提交时停止。
 - 工作流默认只读权限，仅发布作业获得 `contents: write`，使用内置 `GITHUB_TOKEN`，无需另设个人令牌。仓库/组织策略或标签规则若拒绝写入，会在发布作业报错；缺失历史也会停止备注生成。
-- `release-tests` 在 Ubuntu / Node.js 24 上运行，可本地执行 `node --test tests/release.test.cjs`。测试覆盖真实临时 Git 合并备注、附件缺失/空文件、标签稳定性、校验值、长备注、上传中断恢复、已发布重跑和权限/标签冲突；通过模拟 API 验证发布流程，不创建真实 Release。
+- `release-tests` 在 Ubuntu / Node.js 24 上运行，可本地执行 `node --test tests/release.test.cjs`。测试覆盖真实临时 Git 合并备注、附件缺失/空文件、校验值、长备注、首次版本/补丁递增、手动次版本/主版本升级、草稿占号与恢复、Latest 保护、精确预发布/转正式版、已发布重跑和权限/标签冲突；通过模拟 API 验证发布流程，不创建真实 Release。
 
-失败时在 Actions 中重跑失败作业。真实 GitHub 发布及最终下载仍需首次 `main` 推送验证；签名、公证和最低系统版本验收仍沿用现有限制。
+失败时在 Actions 中重跑失败作业。语义版本新规则的真实发布仍需合入后的首次 `main` 推送验证；签名、公证和最低系统版本验收仍沿用现有限制。
 
 交付前核对构建对应提交、每个平台结果及成品验证，下载时校验 GitHub 提供的 artifact digest。Actions 下载的外层 ZIP 内，Windows 是 EXE，Mac 是包含 APP 的第二层 ZIP。不能把外层 ZIP 的散列误写成内部成品散列。
 

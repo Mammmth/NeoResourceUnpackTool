@@ -1,7 +1,7 @@
 # Third-party components
 
-The application source is MIT licensed. Bundled components retain their own
-licenses; the MIT license does not replace them.
+The application source is licensed under GPL-3.0-only. Bundled components retain
+their own licenses; the application license does not replace them.
 
 - **7-Zip 26.04**, Igor Pavlov: LGPL, BSD portions and unRAR restrictions.
   Full notice: `third_party/7zip-License.txt`.

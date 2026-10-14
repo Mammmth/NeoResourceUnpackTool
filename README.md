@@ -13,12 +13,16 @@ Windows / macOS 自动解压桌面工具。一次处理一个压缩包或一组�
 ## 使用方式
 
 1. 打开 Windows 的 `NeoResourceUnpackTool.exe` 或 macOS 的 `NeoResourceUnpackTool.app`。发行包内置 Python、Qt 和完整 7-Zip，无需另行安装。
-2. 配好解压位置、递归方式和产物保留方式；在“管理密码”中添加密码或导入 UTF-8 TXT（每行一个密码）。密码明文显示，添加、编辑、删除、导入后自动保存。
+2. 配好解压位置、递归方式和产物保留方式；在“管理密码”中添加密码或导入 UTF-8 TXT（每行一个密码）。密码明文显示，并展示成功次数；添加、编辑、删除、导入后自动保存。
 3. 拖入一个文件，或**一次拖入同一组的全部分卷**。不支持多个独立压缩包组成的批量任务，也不会从源目录自动补选未拖入的分卷。
 4. 点击“开始解压”。密码均未匹配时，在当前窗口补充密码，再点击“继续当前任务”，已完成的层会被复用。
 5. 完成后点击“打开结果目录”。原始文件默认保留；左侧“原文件”可选择“解压完成后删除”。所有还原和修复仍只操作任务副本。
 
 界面左侧为文件拖拽和配置，右侧为运行状态与日志，中间分隔条可调整宽度。输出位置、层数、产物保留及原文件处理使用平铺单选项，文件名编码保留单选下拉框。第一条进度条表示整体运行状态及阶段，第二条显示当前压缩包的解压百分比；递归切换包或重试密码时重新计量。
+
+ZIP 的 ASCII 密码先做不读取文件内容的加密头初筛，明显不匹配的候选暂时跳过；所有候选均未成功时，再用原流程复试被筛掉的密码。RAR、7z、中文等非 ASCII 密码及无法判断的情况继续使用原流程。日志区分“检查密码”“兼容复试密码”和“正在解压”；初筛通过后仍须完整解压校验，不能保证所有格式都能快速判断，全错时兼容复试可能增加少量耗时。
+
+每次按密码成功次数从高到低尝试，同次数保留密码库列表顺序。每实际成功解开一个压缩包加 1（中间层也算，分卷合计一次，不按包内文件数量累计），并保存到本机配置，重启后继续使用；复用已解压缓存不重复计数。后续层失败或取消不撤销已成功层的次数。编辑成新密码从 0 开始，删除密码会删除对应计数。
 
 ### 输入支持
 
@@ -36,7 +40,11 @@ Windows / macOS 自动解压桌面工具。一次处理一个压缩包或一组�
 | 单个正常或隐写压缩包 | 继续 |
 | 多个压缩包（分卷按一个包计算） | 分别继续 |
 | 压缩包 + TXT | 保留 TXT，继续解压压缩包 |
-| 只有 TXT 或包含其他类型内容 | 停止当前分支 |
+| 文件夹，可带 TXT | 先检查全部子目录；各级只含文件夹 + TXT 或压缩包 + TXT 时，继续内部压缩包 |
+| 只有 TXT 或空目录 | 保留，不解压 |
+| 包含其他类型内容，或同层混有文件夹与压缩包 | 整层保留并停止 |
+
+文件夹递归先检查全部同级分支，检查到压缩包为止；任一分支出现其他内容，本层所有分支都停止。符合条件时保留 A/B 等并列文件夹分组，各分组内部的单个包装目录仍展开，沿途 TXT 保留；只含 TXT 或空目录的分组原样保留。文件夹不计解压层数，分卷只在所在文件夹内组合。
 
 只有一个子文件夹的包装目录自动展开；沿途 TXT 保留。最终内容已有的目录结构保留，如 `app.exe + assets/`。忽略 `.DS_Store`、`__MACOSX` 等系统附加文件。选择“仅解压 1 层”时，还原、分卷合并和修复不额外计层数。
 
@@ -53,7 +61,7 @@ Windows / macOS 自动解压桌面工具。一次处理一个压缩包或一组�
 - 仅保留最终结果（默认），或同时保留 `_中间产物/` 中的还原包、修复副本和各层解压结果。
 - 原文件默认保留；选择“解压完成后删除”后，只在结果成功写入后直接删除本次选中的原文件（不移入废纸篓），分卷一并删除，不扫描其他文件。原文件已变化或删除失败会记录提示，解压结果仍可打开；可能存在部分分卷已删、部分未删的情况。
 
-“固定目录新建同名文件夹”使用最后实际解开的压缩包名（去掉后缀），例如 `1.mp4 → [PC]青的结纳 ver1.03.jpg` 输出为 `[PC]青的结纳 ver1.03/`。若递归出现多个压缩包分支，使用分叉前共同压缩包的名称；仅解一层时使用输入包名。源目录新建文件夹仍使用原始输入名。
+“固定目录新建同名文件夹”优先使用最终内容所在的包装文件夹名：`archive.zip → 文件夹 A/ → 文件合集` 输出为 `文件夹 A/`；`archive.zip → 文件合集` 则输出为 `archive/`。多层包装取最贴近内容的一层，文件夹名中的点号和版本号完整保留。若继续解开内层压缩包，则重新按内层结果决定名称；多分支使用分叉处共同包装文件夹名，没有共同包装文件夹时使用共同压缩包名。仅解一层时按该层结果命名。源目录新建文件夹仍使用原始输入名。
 
 失败或取消时保留任务缓存；窗口里的“打开任务缓存”可以查看位置。当前版本的自动续接在**本窗口会话内**有效，关闭应用后缓存可手动取回，但不会自动恢复任务。成功后自动清理临时任务缓存；原文件清理未完成时保留缓存及日志用于查看。
 
@@ -105,6 +113,8 @@ neo-unpack-cli /path/to/archive.zip --no-delete-sources
 
 CLI 默认沿用本机“原文件”配置；可用 `--delete-sources` 或 `--no-delete-sources` 覆盖当前调用，命令行覆盖不会保存到配置。
 
+CLI 同样按成功次数排序并保存本机密码库中密码的新增次数；`--password-file` 临时提供的库外密码只在此次任务内累计，不自动写入本机密码库或持久化其次数。
+
 ## 测试与打包
 
 ```sh
@@ -115,7 +125,11 @@ python scripts/smoke_build.py
 
 macOS 输出 `dist/NeoResourceUnpackTool.app` 及对应架构 ZIP；Windows 输出单文件 `dist/NeoResourceUnpackTool.exe`。必须在对应系统构建。打包测试会实际启动 Qt、定位内置引擎，并解压测试包；截图和结果保存在 `artifacts/`。
 
-GitHub Actions 的 `Desktop build` 工作流在 `dev` / `main` 推送和 PR 时分别测试、构建 Windows x64、macOS Apple Silicon、macOS Intel，并上传可下载产物；也支持手动触发。`main` 每次直接提交或合并触发的推送，在全部测试和成品验证通过后自动创建 [Release](https://github.com/Mammmth/NeoResourceUnpackTool/releases)，附上本次推送的提交备注、三平台成品及 SHA-256 校验文件。`dev`、PR 和手动构建不发布 Release。自动标签采用提交 UTC 时间和短提交号，具体结果以 Actions 为准。
+GitHub Actions 的 `Desktop build` 工作流在 `dev` / `main` 推送和 PR 时分别测试、构建 Windows x64、macOS Apple Silicon、macOS Intel，并上传可下载产物；也支持手动触发。`main` 每次直接提交或合并触发的推送，在全部测试和成品验证通过后自动创建 [Release](https://github.com/Mammmth/NeoResourceUnpackTool/releases)，附上本次推送的提交备注、三平台成品及 SHA-256 校验文件。`dev`、PR 和手动构建不发布 Release。自动标签采用 `v主版本.次版本.补丁号`：首次为 `v0.1.0`，以后默认递增补丁号，如 `v0.1.1`、`v0.1.2`；同一提交重跑复用版本，历史时间戳标签保留。具体结果以 Actions 为准。
+
+需要手动升级次版本或主版本时，将仓库根目录的 [VERSION](VERSION) 改为目标版本（例如 `0.2.0` 或 `1.0.0`，不带 `v`），随代码合入 `main`。目标高于已占用的正式版本时使用该值，后续继续自动递增补丁号；平时不用改这个文件。这里控制 Release / Tag，不自动改写 Python 包元数据中的版本号。
+
+测试版可以把 `VERSION` 设为 `1.0.0-beta`、`1.0.0-beta.1` 或 `1.0.0-rc.1`。带预发布后缀时精确使用该版本号，标记为 GitHub Pre-release，不替换稳定版的 Latest；同一提交重跑复用，其他提交若占用同名版本则停止发布。再次发布新的测试版前须明确修改版本号；准备发布正式版时改为 `1.0.0`，之后恢复正式版自动递增补丁号。本次发布目标为 `v1.0.0-beta`。
 
 测试包含真实 RAR3/RAR5、加密与分卷样本、真实 PKZIP 分卷、动态生成的加密 ZIP/7z、隐写与伪加密组合、递归停止、密码续接、文件重名、原文件保护及桌面实际任务。测试用 RAR 来源与许可证在 `tests/fixtures/rar/`。
 
@@ -128,4 +142,26 @@ GitHub Actions 的 `Desktop build` 工作流在 `dev` / `main` 推送和 PR 时�
 - `workflow.py`：还原、密码尝试、递归、缓存、结果整理。
 - `gui.py` / `config.py`：桌面界面与本机配置。
 
-本项目 MIT 许可证仅覆盖项目自身代码。内置组件许可证见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。
+## 许可证与第三方组件
+
+Copyright (c) 2026 Mammmth。项目自身代码采用 **GNU General Public License v3.0 only（GPL-3.0-only，仅第 3 版）**，完整条款见 [LICENSE](LICENSE)。可以依协议使用、修改和再分发；分发修改后的程序时须遵守 GPL 的相应源码提供及许可要求。本程序不提供任何担保。此前已按 MIT 发布版本的授权不被撤销。
+
+第三方组件保留各自的版权和许可证，不因本项目采用 GPL 而被重新授权：
+
+| 组件 | 许可证及说明 | 对应源码 |
+| --- | --- | --- |
+| 7-Zip 26.04 | 主要采用 LGPL-2.1-or-later，部分 BSD，RAR 解压部分另有 unRAR 限制；作为未修改的独立子进程运行 | [官方源码包](https://www.7-zip.org/a/7z2604-src.tar.xz) |
+| Qt / PySide6 Essentials / Shiboken6 6.12.0 | 本项目使用 LGPLv3 许可选项；保留用户修改、替换库和为调试这些修改而进行逆向工程的权利 | [Qt 6.12.0](https://download.qt.io/official_releases/qt/6.12/6.12.0/submodules/)、[PySide / Shiboken](https://code.qt.io/cgit/pyside/pyside-setup.git/) |
+| Python 运行时 | PSF 等许可，包含上游第三方版权声明 | [Python 源码](https://www.python.org/downloads/source/) |
+| OpenSSL 3 | Apache-2.0 | [OpenSSL 源码](https://openssl-library.org/source/) |
+| pyzipper 0.4.0 | MIT，继承的 Python 代码另有 PSF 声明 | [源码](https://github.com/danifus/pyzipper) |
+| pycryptodomex / PyCryptodome 3.24.1 | BSD 与公有领域部分 | [源码](https://github.com/Legrandin/pycryptodome) |
+| charset-normalizer 3.5.1 | MIT | [源码](https://github.com/jawah/charset_normalizer) |
+| PyInstaller 6.22.3 | GPLv2-or-later 带打包例外，部分 Apache-2.0；打包例外允许成品采用与依赖兼容的许可证 | [源码](https://github.com/pyinstaller/pyinstaller/tree/v6.22.3) |
+| pyinstaller-hooks-contrib 2026.8 | 按其 LICENSE 中的 GPL / Apache 条款划分 | [源码](https://github.com/pyinstaller/pyinstaller-hooks-contrib) |
+
+现有许可文件和组件声明见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)、[7-Zip 声明](third_party/7zip-License.txt)、[LGPLv3 全文](third_party/Qt-LGPL-3.0.txt)及 [GPLv3 全文](third_party/Qt-GPL-3.0.txt)。RAR 测试样本的 ISC 声明位于 [tests/fixtures/rar/LICENSE](tests/fixtures/rar/LICENSE)，样本不装入桌面应用。
+
+本项目源码位于[项目仓库](https://github.com/Mammmth/NeoResourceUnpackTool)，应使用与成品对应的提交；构建步骤见[开发与验证](docs/DEVELOPMENT.md)。修改或替换 Qt/PySide/Shiboken 后，可安装兼容的库和 wheel，再按该文档重新打包；Windows 单文件 EXE 中临时解出的库不适合直接作持久替换。Python/OpenSSL 的具体补丁版本依构建环境而定，第三方源码应与实际分发版本一致。
+
+再分发时须保留各组件要求的许可证、版权和归属声明，并满足对应源码提供义务；本节说明和上游项目链接不能代替完整许可材料及对应源码的实际提供。

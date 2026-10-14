@@ -10,7 +10,7 @@ def main(report_path: str):
     from PySide6.QtWidgets import QApplication
     from PySide6.QtGui import QFontDatabase
     from . import config
-    from .engine import find_engine
+    from .engine import PasswordCheck, SevenZip, find_engine
     from .gui import MainWindow, PasswordDialog, STYLE
     from .model import Settings
     from .workflow import UnpackTask
@@ -42,6 +42,24 @@ def main(report_path: str):
             archive.writestr("content.txt", "UTF-8 password verified")
         encrypted_result = UnpackTask([encrypted], Settings(passwords=["wrong", "中文密码"])).run()
         assert (encrypted_result.output / "content.txt").read_text() == "UTF-8 password verified"
+        screened = root / "screened.zip"
+        with pyzipper.AESZipFile(screened, "w", encryption=pyzipper.WZ_AES) as archive:
+            archive.setpassword(b"screen-secret")
+            archive.writestr("screen.txt", "Password screening verified")
+        screen_engine = SevenZip()
+        assert screen_engine.check_password(screened, "screen-secret") is PasswordCheck.POSSIBLE
+        wrong = next(p for p in (f"wrong-{i}" for i in range(8))
+                     if screen_engine.check_password(screened, p) is PasswordCheck.MISMATCH)
+        screened_task = UnpackTask([screened], Settings(passwords=[wrong, "screen-secret"]))
+        screened_result = screened_task.run()
+        assert (screened_result.output / "screen.txt").read_text() == "Password screening verified"
+        assert any("密码初筛通过" in line for line in screened_task._log_lines)
+        assert not any("按原流程复试" in line for line in screened_task._log_lines)
+        retry_task = UnpackTask([screened], Settings(passwords=["screen-secret"]))
+        retry_task.engine.check_password = lambda *_: PasswordCheck.MISMATCH
+        retry_result = retry_task.run()
+        assert (retry_result.output / "screen.txt").is_file()
+        assert any("按原流程复试" in line for line in retry_task._log_lines)
         class LegacyName(zipfile.ZipInfo):
             def _encodeFilenameFlags(self):
                 return self.filename.encode("cp932"), self.flag_bits & ~0x800
@@ -74,18 +92,23 @@ def main(report_path: str):
         assert "密码（中文密码）验证成功" in window.log.toPlainText()
         assert not encrypted.exists() and not window.start.isEnabled()
         assert config.load_settings().delete_sources
+        assert config.load_settings().password_success_counts == {"中文密码": 1}
         window.grab().save(str(report.with_suffix(".png")))
         window.filename_encoding.showPopup()
         app.processEvents()
         window.filename_encoding.view().window().grab().save(str(report.with_name(report.stem + "-encoding.png")))
         window.filename_encoding.hidePopup()
-        passwords = PasswordDialog(window.settings.passwords, window, window.save_passwords)
+        passwords = PasswordDialog(window.settings.passwords, window, window.save_passwords,
+                                   success_counts=window.settings.password_success_counts)
+        assert "成功 1 次" in passwords.list.item(0).text()
         passwords.show()
         app.processEvents()
         passwords.grab().save(str(report.with_name(report.stem + "-passwords.png")))
         passwords.close()
         report.write_text(json.dumps({"ok": True, "engine": str(find_engine()), "layers": result.layers,
                                       "utf8_zip_password": True, "filename_encoding": True,
+                                      "password_screening": True,
+                                      "password_frequency": True,
                                       "gui_progress": True, "password_autosave": True,
                                       "delete_sources": True,
                                       "font_families": len(font_families)}, ensure_ascii=False), "utf-8")

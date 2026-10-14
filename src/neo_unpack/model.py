@@ -67,6 +67,7 @@ class Settings:
     passwords: list[str] = field(default_factory=list)
     filename_encoding: str = "default"
     delete_sources: bool = False
+    password_success_counts: dict[str, int] = field(default_factory=dict)
 
     def validate(self) -> None:
         if not isinstance(self.fixed_directory, str) or not isinstance(self.keep_intermediates, bool):
@@ -75,6 +76,11 @@ class Settings:
             raise InvalidInput("原文件删除选项格式不正确。")
         if not isinstance(self.passwords, list) or not all(isinstance(p, str) for p in self.passwords):
             raise InvalidInput("密码库格式不正确。")
+        if not isinstance(self.password_success_counts, dict) or not all(
+            isinstance(p, str) and p and type(count) is int and count >= 0
+            for p, count in self.password_success_counts.items()
+        ):
+            raise InvalidInput("密码成功次数配置格式不正确。")
         if not isinstance(self.filename_encoding, str) or self.filename_encoding not in FILENAME_ENCODINGS:
             raise InvalidInput("未知的文件名编码选项。")
         if self.output_mode not in {"direct", "folder", "fixed", "fixed_folder"}:

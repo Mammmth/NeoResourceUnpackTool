@@ -2,9 +2,10 @@ from __future__ import annotations
 
 import argparse
 import sys
+from dataclasses import replace
 from pathlib import Path
 
-from .config import load_settings
+from .config import load_settings, save_settings
 from .model import FILENAME_ENCODINGS, UnpackError
 from .workflow import UnpackTask
 
@@ -26,7 +27,9 @@ def main() -> int:
     args = parser.parse_args()
     task = None
     try:
-        settings = load_settings()
+        saved_settings = load_settings()
+        settings = replace(saved_settings, passwords=list(saved_settings.passwords),
+                           password_success_counts=dict(saved_settings.password_success_counts))
         if args.delete_sources is not None:
             settings.delete_sources = args.delete_sources
         if args.filename_encoding:
@@ -39,7 +42,14 @@ def main() -> int:
             settings.keep_intermediates = True
         if args.password_file:
             settings.passwords = list(dict.fromkeys(args.password_file.read_text("utf-8-sig").splitlines()))
-        task = UnpackTask(args.files, settings, log=print)
+        def save_password_success(password):
+            # Persist library statistics only, not CLI overrides or passwords
+            # supplied temporarily through --password-file.
+            if password in saved_settings.passwords:
+                saved_settings.password_success_counts[password] = settings.password_success_counts[password]
+                save_settings(saved_settings)
+
+        task = UnpackTask(args.files, settings, log=print, on_password_success=save_password_success)
         result = task.run()
         print(f"输出：{result.output}")
         return 0

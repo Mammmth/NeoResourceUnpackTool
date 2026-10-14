@@ -6,16 +6,16 @@ import shutil
 import stat
 import tempfile
 import zipfile
-from dataclasses import asdict
+from dataclasses import asdict, dataclass
 from pathlib import Path
 from threading import Event
 from typing import Callable
 
 from .detect import OffsetReader, detect
-from .engine import SevenZip
+from .engine import PasswordCheck, SevenZip
 from .filename_encoding import normalize_zip_names
 from .model import (
-    ArchiveInfo, Cancelled, InvalidInput, Log, PasswordRequired, Result, Settings,
+    ArchiveInfo, Cancelled, InvalidInput, Log, MissingVolume, PasswordRequired, Result, Settings,
     TaskProgress, UnpackError, VolumeGroup,
 )
 from .volumes import discover_groups, is_volume_name, make_group
@@ -61,18 +61,38 @@ def content_container(path: Path, info: ArchiveInfo | None) -> bool:
         return False
 
 
+@dataclass
+class _FinalItem:
+    # Parent paths identify retained branches, even when separate archives use
+    # the same folder name. None reserves an otherwise empty output directory.
+    source: Path | None
+    group: str
+    parents: tuple[Path, ...] = ()
+
+
+@dataclass
+class _DirectoryPlan:
+    root: Path
+    texts: list[Path]
+    groups: list[VolumeGroup]
+    directories: list[_DirectoryPlan]
+    has_archives: bool
+
+
 class UnpackTask:
     """One logical input, with cached successful nodes for password retry."""
 
     def __init__(self, paths: list[Path], settings: Settings, *, engine: Path | None = None,
                  log: Log = lambda _: None, cancel: Event | None = None, cache_root: Path | None = None,
-                 progress: Callable[[TaskProgress], None] = lambda _: None):
+                 progress: Callable[[TaskProgress], None] = lambda _: None,
+                 on_password_success: Callable[[str], None] = lambda _: None):
         settings.validate()
         self.group = make_group(paths)
         self._output_name = self.group.name
         self.settings = settings
         self.log = log
         self.progress = progress
+        self.on_password_success = on_password_success
         self.current_archive = ""
         self.current_depth = 0
         self._stage = ""
@@ -84,7 +104,6 @@ class UnpackTask:
         self.prepared: dict[tuple[str, ...], tuple[Path, ArchiveInfo, Path]] = {}
         self.extracted: dict[tuple[str, ...], Path] = {}
         self.detected: dict[tuple[str, bool], ArchiveInfo | None] = {}
-        self.preferred_passwords: list[str] = []
         self.layers = 0
         self.archive_count = 0
         self._log_lines: list[str] = []
@@ -105,7 +124,7 @@ class UnpackTask:
         self.progress(TaskProgress(stage, self.current_archive, self.current_depth, percent))
 
     def extraction_progress(self, percent: int | None) -> None:
-        self.report_progress("检查压缩包" if percent is None else "解压", percent)
+        self.report_progress("检查压缩包" if percent is None else "正在解压", percent)
 
     def check_cancel(self) -> None:
         if self.cancel.is_set():
@@ -208,28 +227,65 @@ class UnpackTask:
             return self.extracted[key]
         archive, _, directory = self.prepare(group)
         destination = directory / "解压结果"
-        candidates = [None, *dict.fromkeys(p for p in [*self.preferred_passwords, *self.settings.passwords] if p)]
+        # Stable sorting keeps the configured order for equal counts. Rebuild
+        # for each archive so successes in earlier layers affect later ones.
+        passwords = list(dict.fromkeys(p for p in self.settings.passwords if p))
+        passwords.sort(key=lambda p: -self.settings.password_success_counts.get(p, 0))
+        candidates = [None, *passwords]
         needed_password = False
-        for index, password in enumerate(candidates):
-            self.check_cancel()
-            if destination.exists():
-                shutil.rmtree(destination)
-            if password is not None:
-                self.emit(f"正在尝试密码 {index}/{len(candidates) - 1}…")
-            try:
-                self.engine.extract(archive, destination, password)
-            except PasswordRequired:
-                needed_password = True
-                continue
-            self.extracted[key] = destination
-            self.archive_count += 1
-            if password is not None:
-                self.preferred_passwords = [password, *[p for p in self.preferred_passwords if p != password]]
-                self.emit(f"密码（{password}）验证成功，后续层将优先尝试。")
-            self.save_manifest("处理中")
-            return destination
+        rejected: list[tuple[int, str]] = []
+        pending_error: UnpackError | None = None
+        for compatibility in (False, True):
+            attempts = rejected if compatibility else list(enumerate(candidates))
+            if compatibility and attempts:
+                self.emit("快速尝试未成功，正在按原流程复试初筛未匹配的密码…")
+            for index, password in attempts:
+                self.check_cancel()
+                if password is not None:
+                    self.report_progress("兼容复试密码" if compatibility else "检查密码")
+                    self.emit(f"{'兼容复试' if compatibility else '正在检查'}密码 {index}/{len(candidates) - 1}…")
+                    if not compatibility:
+                        check = self.engine.check_password(archive, password)
+                        if check is PasswordCheck.MISMATCH:
+                            rejected.append((index, password))
+                            needed_password = True
+                            continue
+                        if check is PasswordCheck.POSSIBLE:
+                            self.emit("密码初筛通过，接下来解压并完整校验。")
+                if destination.exists():
+                    shutil.rmtree(destination)
+                try:
+                    self.engine.extract(archive, destination, password)
+                except Cancelled:
+                    raise
+                except PasswordRequired:
+                    needed_password = True
+                    continue
+                except UnpackError as error:
+                    if not compatibility and not rejected:
+                        raise
+                    # An uncertain candidate must not prevent a previously
+                    # filtered correct password from reaching the old path.
+                    pending_error = pending_error or error
+                    if not compatibility:
+                        break
+                    continue
+                self.extracted[key] = destination
+                self.archive_count += 1
+                if password is not None:
+                    counts = self.settings.password_success_counts
+                    counts[password] = counts.get(password, 0) + 1
+                    self.emit(f"密码（{password}）验证成功，累计成功 {counts[password]} 次。")
+                    try:
+                        self.on_password_success(password)
+                    except (OSError, ValueError, UnpackError):
+                        self.emit("密码成功次数保存失败，本次任务内仍按最新次数排序；请检查配置目录权限。")
+                self.save_manifest("处理中")
+                return destination
         if destination.exists():
             shutil.rmtree(destination)
+        if pending_error is not None:
+            raise pending_error
         if needed_password:
             message = "当前密码库未能解开此压缩包。请补充正确密码后继续；加密数据损坏也可能导致相同错误。"
             if len(candidates) == 1:
@@ -237,7 +293,8 @@ class UnpackTask:
             raise PasswordRequired(message)
         raise UnpackError("解压未完成。")
 
-    def _walk(self, group: VolumeGroup, depth: int, finals: list[tuple[Path, str]]) -> str:
+    def _walk(self, group: VolumeGroup, depth: int, finals: list[_FinalItem],
+              parents: tuple[Path, ...] = ()) -> str:
         """Collect results and return the innermost name shared by all branches."""
         self.check_cancel()
         if depth > 64 or self.archive_count >= 10000:
@@ -248,58 +305,122 @@ class UnpackTask:
         self.report_progress("准备处理")
         extracted = self.unpack(group)
         self.report_progress("检查本层内容")
+        return self._walk_directory(extracted, group.name, depth, finals, parents)
+
+    def _walk_directory(self, extracted: Path, name: str, depth: int,
+                        finals: list[_FinalItem], parents: tuple[Path, ...]) -> str:
         root = extracted
         # Peel wrapper-only directories. Sidecar TXT files do not add layers.
         while True:
+            self.check_cancel()
             items = children(root)
             dirs = [p for p in items if p.is_dir()]
             files = [p for p in items if p.is_file()]
-            if len(dirs) == 1 and all(p.suffix.casefold() == ".txt" for p in files):
-                finals.extend((p, group.name) for p in files)
+            if len(dirs) == 1 and all(
+                p.suffix.casefold() == ".txt" and (self.settings.depth == "one" or
+                self.info(VolumeGroup((p,), name=p.stem)) is None) for p in files
+            ):
+                finals.extend(_FinalItem(p, name, parents) for p in files)
                 root = dirs[0]
             else:
                 break
         items = children(root)
+        # Keep the actual content folder's full name (including dots). A
+        # wrapper around another archive does not name that archive's results.
+        output_name = root.name if root != extracted else name
         if self.settings.depth == "one":
-            finals.extend((p, group.name) for p in items)
-            return group.name
-        # Directories alongside content are part of that content; don't flatten them.
-        if any(p.is_dir() for p in items):
-            finals.extend((p, group.name) for p in items)
-            return group.name
+            finals.extend(_FinalItem(p, name, parents) for p in items)
+            return output_name
+        plan = self._plan_directory(root)
+        if plan is None:
+            finals.extend(_FinalItem(p, name, parents) for p in items)
+            return output_name
+        return self._collect_directory(plan, name, depth, finals, parents, output_name)
+
+    def _plan_directory(self, root: Path) -> _DirectoryPlan | None:
+        """Preflight the whole visible tree; archive contents remain a boundary."""
+        self.check_cancel()
+        items = children(root)
+        directories = [p for p in items if p.is_dir()]
+        try:
+            classified = self._archive_contents([p for p in items if p.is_file()])
+        except MissingVolume:
+            if directories:
+                return None  # Mixed archive/directory contents stop this level.
+            raise
+        if classified is None:
+            return None
+        texts, groups = classified
+        if directories and groups:
+            return None
+        plans = []
+        missing_volume = None
+        for directory in directories:
+            try:
+                plan = self._plan_directory(directory)
+            except MissingVolume as error:
+                # A later content branch can stop the entire level. Only report
+                # missing parts when all siblings otherwise allow recursion.
+                missing_volume = missing_volume or error
+                continue
+            if plan is None:
+                return None
+            plans.append(plan)
+        if missing_volume is not None:
+            raise missing_volume
+        return _DirectoryPlan(root, texts, groups, plans,
+                              bool(groups) or any(p.has_archives for p in plans))
+
+    def _collect_directory(self, plan: _DirectoryPlan, name: str, depth: int,
+                           finals: list[_FinalItem], parents: tuple[Path, ...],
+                           output_name: str) -> str:
+        self.check_cancel()
+        # Within a retained branch, single directories are still wrappers.
+        while len(plan.directories) == 1:
+            self.check_cancel()
+            finals.extend(_FinalItem(p, name, parents) for p in plan.texts)
+            plan = plan.directories[0]
+            output_name = plan.root.name
+        finals.extend(_FinalItem(p, name, parents) for p in plan.texts)
+        for child in plan.directories:
+            if not child.has_archives:
+                # Keep TXT-only/empty branches intact, including empty folders.
+                finals.append(_FinalItem(child.root, name, parents))
+                continue
+            branch = (*parents, child.root)
+            finals.append(_FinalItem(None, name, branch))
+            self._collect_directory(child, name, depth, finals, branch, child.root.name)
+        names = [self._walk(candidate, depth + 1, finals, parents) for candidate in plan.groups]
+        return names[0] if len(names) == 1 else output_name
+
+    def _archive_contents(self, items: list[Path]) -> tuple[list[Path], list[VolumeGroup]] | None:
+        """Classify files without extracting: ordinary TXT plus complete archive groups."""
         texts = [p for p in items if p.suffix.casefold() == ".txt"]
         nontexts = [p for p in items if p.suffix.casefold() != ".txt"]
         for path in texts[:]:
+            self.check_cancel()
             if self.info(VolumeGroup((path,), name=path.stem)):
                 texts.remove(path)
                 nontexts.append(path)
-        # A single renamed archive can have any extension, including .txt.
-        if len(items) == 1:
-            nontexts, texts = items, []
         if not nontexts:
-            finals.extend((p, group.name) for p in texts)
-            return group.name
+            return texts, []
         for path in nontexts:
+            self.check_cancel()
             if is_volume_name(path):
                 continue
             if path.suffix.casefold() == ".zip" and any(re.fullmatch(re.escape(path.stem) + r"\.z\d{2,}", other.name, re.I) for other in nontexts):
                 continue
             info = self.info(VolumeGroup((path,), name=path.stem))
             if info is None or content_container(path, info):
-                finals.extend((p, group.name) for p in items)
-                return group.name
+                return None
         try:
             groups = discover_groups(nontexts)
             archive_infos = [self.info(candidate) for candidate in groups]
         except InvalidInput:
-            finals.extend((p, group.name) for p in items)
-            return group.name
+            return None
         if any(info is None for info in archive_infos):
-            finals.extend((p, group.name) for p in items)
-            return group.name
-        finals.extend((p, group.name) for p in texts)
-        names = [self._walk(candidate, depth + 1, finals) for candidate in groups]
-        return names[0] if len(names) == 1 else group.name
+            return None
+        return texts, groups
 
     def _copy_final(self, source: Path, target: Path) -> None:
         self.check_cancel()
@@ -311,7 +432,29 @@ class UnpackTask:
             self.copy(source, target)
             shutil.copystat(source, target)
 
-    def _publish(self, finals: list[tuple[Path, str]]) -> Path:
+    def _stage_bundle(self, paths: list[Path], name: str, staged: Path, existing: set[str]) -> None:
+        self.check_cancel()
+        collision = any(p.name.casefold() in existing for p in paths)
+        if collision and any(p.is_dir() for p in paths):
+            target_dir = available_name(staged, name)
+            while target_dir.name.casefold() in existing:
+                target_dir = target_dir.with_name(target_dir.name + "_结果")
+            target_dir.mkdir()
+            for path in paths:
+                self._copy_final(path, target_dir / path.name)
+            existing.add(target_dir.name.casefold())
+        else:
+            for path in paths:
+                wanted = path.name
+                if wanted.casefold() in existing:
+                    wanted = f"{path.stem}_{name}{path.suffix}"
+                target = available_name(staged, wanted)
+                while target.name.casefold() in existing:
+                    target = target.with_name(f"{target.stem}_2{target.suffix}")
+                self._copy_final(path, target)
+                existing.add(target.name.casefold())
+
+    def _publish(self, finals: list[_FinalItem]) -> Path:
         mode = self.settings.output_mode
         base = Path(self.settings.fixed_directory).expanduser().absolute() if mode.startswith("fixed") else self.group.paths[0].parent
         base.mkdir(parents=True, exist_ok=True)
@@ -325,31 +468,30 @@ class UnpackTask:
         try:
             # Separate branch bundles when a collision would otherwise rename an
             # application's resource directory independently of its executable.
-            bundles: dict[tuple[Path, str], list[Path]] = {}
-            for path, name in finals:
-                bundles.setdefault((path.parent, name), []).append(path)
+            bundles: dict[tuple[Path, str, tuple[Path, ...]], list[Path]] = {}
+            parents = {(): staged}
             existing = {p.name.casefold() for p in output.iterdir()}
-            for (_, name), paths in bundles.items():
+            for item in finals:
                 self.check_cancel()
-                collision = any(p.name.casefold() in existing for p in paths)
-                if collision and any(p.is_dir() for p in paths):
-                    target_dir = available_name(staged, name)
-                    while target_dir.name.casefold() in existing:
-                        target_dir = target_dir.with_name(target_dir.name + "_结果")
-                    target_dir.mkdir()
-                    for path in paths:
-                        self._copy_final(path, target_dir / path.name)
-                    existing.add(target_dir.name.casefold())
-                else:
-                    for path in paths:
-                        wanted = path.name
-                        if wanted.casefold() in existing:
-                            wanted = f"{path.stem}_{name}{path.suffix}"
-                        target = available_name(staged, wanted)
+                for count, source in enumerate(item.parents, 1):
+                    key = item.parents[:count]
+                    if key in parents:
+                        continue
+                    parent = parents[key[:-1]]
+                    target = available_name(parent, source.name)
+                    if parent == staged:
                         while target.name.casefold() in existing:
-                            target = target.with_name(f"{target.stem}_2{target.suffix}")
-                        self._copy_final(path, target)
+                            target = target.with_name(target.name + "_结果")
                         existing.add(target.name.casefold())
+                    target.mkdir()
+                    parents[key] = target
+                if item.source is not None:
+                    key = (item.source.parent, item.group, item.parents)
+                    bundles.setdefault(key, []).append(item.source)
+            for (_, name, branch), paths in bundles.items():
+                target_dir = parents[branch]
+                occupied = existing if not branch else {p.name.casefold() for p in target_dir.iterdir()}
+                self._stage_bundle(paths, name, target_dir, occupied)
             if self.settings.keep_intermediates:
                 target = available_name(staged, "_中间产物")
                 while target.name.casefold() in existing:
@@ -377,7 +519,8 @@ class UnpackTask:
         payload = {
             "status": status, "inputs": [str(p) for p in self.group.paths],
             "completed": {" | ".join(k): str(v) for k, v in self.extracted.items()},
-            "settings": {k: v for k, v in asdict(self.settings).items() if k != "passwords"},
+            "settings": {k: v for k, v in asdict(self.settings).items()
+                         if k not in {"passwords", "password_success_counts"}},
         }
         (self.session / "task.json").write_text(json.dumps(payload, ensure_ascii=False, indent=2), "utf-8")
         (self.session / "process.log").write_text("\n".join(self._log_lines), "utf-8")
@@ -446,7 +589,7 @@ class UnpackTask:
                 self.layers = self.archive_count = 0
                 self._filename_encoding = self.settings.filename_encoding
                 self.emit("文件名编码已更改，重新从原始输入处理；旧过程缓存已保留。")
-            finals: list[tuple[Path, str]] = []
+            finals: list[_FinalItem] = []
             self._output_name = self._walk(self.group, 1, finals)
             self.emit("解压完成，正在整理最终内容…")
             self.current_archive, self.current_depth = "", 0
