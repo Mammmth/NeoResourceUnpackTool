@@ -1,0 +1,2 @@
+# Preserve whitespace in verbatim upstream attribution snapshots.
+third_party/qt/*-NOTICES.txt whitespace=-blank-at-eol,-blank-at-eof

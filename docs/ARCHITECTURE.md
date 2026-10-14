@@ -116,3 +116,9 @@ Windows 7-Zip 的 ZIP 密码编码使用系统 ANSI 代码页；失败且用户�
 - 同一窗口一般失败/取消后也可尝试继续，但只有保留下来的成功节点可以复用；不能承诺所有错误可恢复。
 - 新格式先补结构识别、适配及样本测试，再接入工作流。不要只增加后缀名单。
 - 修改递归时同时检查 TXT 伪装、ZIP 文档容器、资源目录和缺卷混合内容，避免改变已确认的停止规则。
+
+## 成品许可材料
+
+`scripts/collect_licenses.py` 生成 `build/legal/`，`scripts/build.py` 将其整体放入 PyInstaller 的 `legal/` 资源目录。静态输入为项目许可/声明/源码说明、`third_party/qt-sources.json` 和归属快照；动态输入为实际平台 7-Zip 许可、已安装包许可和对应版本 Python/OpenSSL 官方声明。`BUILD_INFO.json` 保存版本与源码地址，`FILES.sha256.json` 保存完整材料清单及散列。
+
+GUI 的 `license_root()` 在打包后定位 `_MEIPASS/legal`，源码运行时定位仓库根目录。`LicenseDialog` 只显示材料，不参与解压策略。成品 self-test 验证清单、内容散列与运行时版本，并输出许可窗口截图。发布脚本在 Release 中链接对应提交的项目源码及说明。

@@ -134,4 +134,7 @@ GitHub Actions 的 `Desktop build` 工作流在 `dev` / `main` 推送和 PR 时�
 - `workflow.py`：还原、密码尝试、递归、缓存、结果整理。
 - `gui.py` / `config.py`：桌面界面与本机配置。
 
-本项目 MIT 许可证仅覆盖项目自身代码。内置组件许可证见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。
+本版本项目自身代码采用 [GPL-3.0-only（仅第 3 版）](LICENSE)，Copyright (c) 2026 Mammmth。
+此前已按 MIT 发布版本的授权不被撤销。内置组件保留各自许可证，见
+[第三方声明](THIRD_PARTY_NOTICES.md) 和 [对应源码与重新构建](SOURCE_CODE.md)。
+应用的“帮助 → 项目与第三方许可证”可查看声明、GPL 全文、源码获取办法和实际构建版本。

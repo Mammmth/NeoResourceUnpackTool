@@ -51,6 +51,7 @@ git diff --check
 | `test_progress.py` | 子进程退出前的进度、分块及回车/退格解析、取消、真实递归密码续接、成功密码日志、UTF-8 回退字节进度 |
 | `test_password_screening.py` | ZIP 加密头初筛不读取内容、错误密码跳过、误筛后原流程恢复、不确定结果/UTF-8 回退、完整性与路径检查、失败保留原件及取消 |
 | `test_password_frequency.py` | 次数配置兼容/校验、稳定降序、逐层重排、中间层/分支/分卷计数、失败后续接不重复、保存失败、CLI 覆盖隔离及临时密码 |
+| `test_licenses.py` | 包内嵌套许可与版权保留、Qt 引用声明收集及缺失阻断 |
 | `test_build_scripts.py` | 旧 Windows 控制台编码下脚本帮助输出 |
 | `test_filename_encoding.py` | 手动代码页、自动检测歧义、Unicode 优先、加密回退、数字/PKZIP 分卷、ZIP64、原件保护、编码变更重建缓存 |
 
@@ -75,7 +76,7 @@ python scripts/smoke_build.py
 
 `dist/releases/` 是首次交付时手工汇总的本地产物目录，构建脚本不会自动维护它；可能不存在或过期。
 
-`smoke_build.py` 启动实际打包程序的 `--smoke-test` 入口，验证 Qt 字体、内置引擎、普通 ZIP、中文密码 ZIP、CP932 文件名及自动检测，以及密码初筛/误筛后兼容复试、密码自动保存/成功次数持久化与展示、Worker 进度和成功密码日志，输出 `artifacts/bundled-smoke.json`、主窗口 `.png`、`-encoding.png` 和 `-passwords.png`。检查报告 `ok`、`utf8_zip_password`、`password_screening`、`password_frequency`、`filename_encoding`、`gui_progress`、`password_autosave`、`delete_sources`、`font_families`，并实际查看截图；这不替代拖放和密码编辑等人工交互验收。
+`smoke_build.py` 启动实际打包程序的 `--smoke-test` 入口，验证 Qt 字体、内置引擎、普通 ZIP、中文密码 ZIP、CP932 文件名及自动检测，以及密码初筛/误筛后兼容复试、密码自动保存/成功次数持久化与展示、Worker 进度和成功密码日志，输出 `artifacts/bundled-smoke.json`、主窗口 `.png`、`-encoding.png`、`-passwords.png` 和 `-licenses.png`。检查报告 `license_materials`、`ok`、`utf8_zip_password`、`password_screening`、`password_frequency`、`filename_encoding`、`gui_progress`、`password_autosave`、`delete_sources`、`font_families`，并实际查看截图；这不替代拖放和密码编辑等人工交互验收。
 
 macOS 可用原生平台插件补验成品（此入口属于打包程序，不能改为 `python -m neo_unpack --smoke-test`）：
 
@@ -92,6 +93,24 @@ codesign --verify --deep --strict dist/NeoResourceUnpackTool.app
 ```
 
 这只检查当前包签名结构，不能证明具有 Developer ID、Apple 公证或通过下载隔离检查。正式签名和公证尚未配置。不要用全局关闭系统安全验证的方式作为交付方案。
+
+## 许可材料与对应源码
+
+项目代码采用 GPL-3.0-only，第三方组件保留原许可。分发与修改后库的重建说明见 [SOURCE_CODE.md](../SOURCE_CODE.md)。
+
+`scripts/build.py` 调用 `scripts/collect_licenses.py`，从实际安装包、对应版本 Python/OpenSSL 官方源码及仓库保存的 Qt 声明生成 `build/legal/`，整体装入成品的 `legal/`。构建需要访问 PyPI、GitHub 原始源码；获取失败、必需材料缺失或 Qt/PySide/Shiboken 与快照版本不匹配时停止，不静默生成缺材料成品。7-Zip 许可来自当前平台经校验的官方包。
+
+`BUILD_INFO.json` 记录项目提交、工作区是否修改、平台、组件精确版本与源码链接；`FILES.sha256.json` 记录许可文件散列，成品测试逐项校验。正式分发应从干净且已公开提交构建，未提交工作区生成的源码链接不能代表全部改动。
+
+升级 Qt/PySide 时，先核对官方源码包版本与 SHA-256，更新 `third_party/qt-sources.json`，执行：
+
+```sh
+python scripts/refresh_qt_notices.py
+```
+
+该脚本校验归档，不解压执行源码，只收集许可、REUSE 版权归属与 Qt attribution 引用文本；快照包含可选组件声明，不表示所有组件均已打包。许可证正文保留上游文本。升级其他依赖或改变打包范围时，仍须核对新增内部第三方组件与实际二进制的对应关系。
+
+帮助菜单中的“项目与第三方许可证”可直接阅读声明、GPL 正文、源码说明和构建版本，并打开全部材料。Windows 单文件程序的材料位于运行时临时目录，可在程序关闭前复制。
 
 ## GitHub Actions
 
@@ -112,6 +131,7 @@ codesign --verify --deep --strict dist/NeoResourceUnpackTool.app
 [scripts/release.cjs](../scripts/release.cjs) 将 head（通常为合并提交）的标题和正文作为 Release 主描述，按 Markdown 展示；从完整 Git 历史读取 `before..head` 新增提交的标题及正文，放入折叠区；首次建立分支（before 全零）只取 head。长备注会截断并提供完整变更链接。提交备注作为数据处理，不插入 shell 命令或 Actions 表达式。
 
 - 标签格式：`vYYYYMMDDTHHMMSSZ-<12位提交号>`，采用提交的 UTC 时间，重跑保持一致；应用内版本号不随自动标签改动。
+- Release 正文附 GPL-3.0-only 声明、对应提交的源码 ZIP、第三方声明和源码重建说明链接。
 - 附件：`NeoResourceUnpackTool.exe`、`NeoResourceUnpackTool-macos-arm64.zip`、`NeoResourceUnpackTool-macos-x86_64.zip`、`SHA256SUMS.txt`。发布前核对三个包均存在且非空，校验文件针对内部成品，不是 Actions 外层 ZIP。
 - 先创建草稿、上传全部附件、再公开。上传失败不公开；重跑同一次 Actions 可替换草稿附件并继续。已公开版本直接返回，不改写附件；同名标签或 Release 指向其他提交时停止。
 - 工作流默认只读权限，仅发布作业获得 `contents: write`，使用内置 `GITHUB_TOKEN`，无需另设个人令牌。仓库/组织策略或标签规则若拒绝写入，会在发布作业报错；缺失历史也会停止备注生成。

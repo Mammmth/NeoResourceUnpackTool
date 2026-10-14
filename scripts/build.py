@@ -1,11 +1,11 @@
 from __future__ import annotations
 
-import importlib.metadata
 import platform
-import shutil
 import subprocess
 import sys
 from pathlib import Path
+
+from collect_licenses import collect
 
 ROOT = Path(__file__).resolve().parents[1]
 NAME = "NeoResourceUnpackTool"
@@ -22,23 +22,10 @@ def main():
     engine = engine_dir / ("7z.exe" if host == "windows" else "7zz")
     if not engine.exists():
         raise SystemExit("请先运行 python scripts/fetch_engine.py")
-    licenses = ROOT / "build" / "licenses"
-    licenses.mkdir(parents=True, exist_ok=True)
-    for package in ["PySide6-Essentials", "shiboken6", "pyinstaller", "pyzipper", "pycryptodomex", "charset-normalizer"]:
-        distribution = importlib.metadata.distribution(package)
-        for file in distribution.files or []:
-            if "licenses" in file.parts:
-                target = licenses / package / Path(*file.parts[file.parts.index("licenses") + 1:])
-                target.parent.mkdir(parents=True, exist_ok=True)
-                shutil.copyfile(distribution.locate_file(file), target)
-            elif file.name.upper().startswith(("LICENSE", "COPYING")):
-                target = licenses / package / file.name
-                target.parent.mkdir(parents=True, exist_ok=True)
-                shutil.copyfile(distribution.locate_file(file), target)
+    licenses = collect(host)
     args = [sys.executable, "-m", "PyInstaller", "--noconfirm", "--clean", "--windowed", "--name", NAME,
             "--paths", str(ROOT / "src"), "--distpath", str(ROOT / "dist"), "--workpath", str(ROOT / "build/pyinstaller"),
-            "--specpath", str(ROOT / "build"), "--add-data", f"{ROOT / 'third_party'}:third_party",
-            "--add-data", f"{licenses}:third_party/package-licenses", "--add-data", f"{ROOT / 'THIRD_PARTY_NOTICES.md'}:.",
+            "--specpath", str(ROOT / "build"), "--add-data", f"{licenses}:legal",
             "--add-binary", f"{engine}:vendor/7zip/{host}"]
     if host == "windows":
         args.extend(["--onefile", "--add-binary", f"{engine_dir / '7z.dll'}:vendor/7zip/windows"])
